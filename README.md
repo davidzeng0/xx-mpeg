@@ -1,2 +1,3 @@
 # xx-mpeg
-Multimedia
+
+Multimedia library.

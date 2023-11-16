@@ -64,7 +64,7 @@ impl CodecContext {
 
 impl CodecContext {
 	fn open(&mut self) -> Result<()> {
-		let result = unsafe { avcodec_open2(self.ptr.as_ptr_mut(), null(), null_mut()) };
+		let result = unsafe { avcodec_open2(self.ptr.as_mut_ptr(), null(), null_mut()) };
 
 		result_from_av(result)?;
 
@@ -72,7 +72,7 @@ impl CodecContext {
 	}
 
 	unsafe fn send_packet(&mut self, packet: &AVPacket) -> Result<()> {
-		let result = avcodec_send_packet(self.ptr.as_ptr_mut(), packet);
+		let result = avcodec_send_packet(self.ptr.as_mut_ptr(), packet);
 
 		result_from_av(result)?;
 
@@ -80,7 +80,7 @@ impl CodecContext {
 	}
 
 	unsafe fn send_frame(&mut self, frame: &AVFrame) -> Result<()> {
-		let result = avcodec_send_frame(self.ptr.as_ptr_mut(), frame);
+		let result = avcodec_send_frame(self.ptr.as_mut_ptr(), frame);
 
 		result_from_av(result)?;
 
@@ -102,14 +102,14 @@ impl CodecContext {
 
 	unsafe fn receive_packet(&mut self, packet: &mut AVPacket) -> Result<bool> {
 		let received =
-			Self::result_from_av_maybe_none(avcodec_receive_packet(self.ptr.as_ptr_mut(), packet))?;
+			Self::result_from_av_maybe_none(avcodec_receive_packet(self.ptr.as_mut_ptr(), packet))?;
 
 		Ok(received)
 	}
 
 	unsafe fn receive_frame(&mut self, frame: &mut AVFrame) -> Result<bool> {
 		let received =
-			Self::result_from_av_maybe_none(avcodec_receive_frame(self.ptr.as_ptr_mut(), frame))?;
+			Self::result_from_av_maybe_none(avcodec_receive_frame(self.ptr.as_mut_ptr(), frame))?;
 
 		Ok(received)
 	}
@@ -117,7 +117,7 @@ impl CodecContext {
 
 impl Drop for CodecContext {
 	fn drop(&mut self) {
-		let mut ptr = self.ptr.as_ptr_mut();
+		let mut ptr = self.ptr.as_mut_ptr();
 
 		unsafe { avcodec_free_context(&mut ptr) }
 	}
@@ -348,7 +348,7 @@ impl CodecTrait for AVCodec {
 
 	fn drain(&mut self) -> Result<()> {
 		result_from_av(unsafe {
-			avcodec_receive_packet(self.context.ptr.as_ptr_mut(), null_mut())
+			avcodec_receive_packet(self.context.ptr.as_mut_ptr(), null_mut())
 		})?;
 
 		Ok(())
@@ -356,7 +356,7 @@ impl CodecTrait for AVCodec {
 
 	fn flush(&mut self) -> Result<()> {
 		unsafe {
-			avcodec_flush_buffers(self.context.ptr.as_ptr_mut());
+			avcodec_flush_buffers(self.context.ptr.as_mut_ptr());
 		}
 
 		Ok(())

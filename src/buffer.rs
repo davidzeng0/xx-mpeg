@@ -7,7 +7,11 @@ use std::{
 
 use enumflags2::{bitflags, BitFlags};
 use ffmpeg_sys_next::*;
-use xx_core::{error::*, os::error::ErrorCodes, pointer::MutPtr};
+use xx_core::{
+	error::*,
+	os::error::ErrorCodes,
+	pointer::{MutPtr, Ptr}
+};
 
 #[bitflags]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -17,22 +21,22 @@ enum BufferFlag {
 	NoFree        = 1 << 1
 }
 
-pub type BufferFreeFn = extern "C" fn(*const (), *mut Buffer);
+pub type BufferFreeFn = extern "C" fn(Ptr<()>, MutPtr<Buffer>);
 
 #[repr(C)]
 pub struct Buffer {
 	/* used to store data, but in our case a self-reference */
-	data: *mut u8,
+	data: MutPtr<u8>,
 	size: usize,
 	refs: AtomicU32,
 	free_fn: BufferFreeFn,
-	user: *const (),
+	user: Ptr<()>,
 	flags: u32,
 	flags_internal: u32
 }
 
 impl Buffer {
-	pub extern "C" fn default_free(_: *const (), _: *mut Buffer) {
+	pub extern "C" fn default_free(_: Ptr<()>, _: MutPtr<Buffer>) {
 		/* this is our buffer, not libav's, otherwise we wouldn't be here. in
 		 * that case, nothing to do, as the data is tied to the buffer, and
 		 * will be freed when the buffer frees itself */
@@ -44,15 +48,15 @@ impl Buffer {
 		}
 	}
 
-	fn new(len: usize, free_fn: BufferFreeFn, user: *const ()) -> Result<MutPtr<Self>> {
-		let mut buffer = MutPtr::from(unsafe { alloc(Self::layout_for_size(len)) } as *mut Buffer);
+	fn new(len: usize, free_fn: BufferFreeFn, user: Ptr<()>) -> Result<MutPtr<Self>> {
+		let buffer = MutPtr::from(unsafe { alloc(Self::layout_for_size(len)) }).cast::<Buffer>();
 
 		if buffer.is_null() {
 			return Err(Error::from_raw_os_error(ErrorCodes::NoMem as i32));
 		}
 
-		*buffer = Self {
-			data: buffer.as_ptr_mut().cast(),
+		buffer.as_uninit().write(Self {
+			data: buffer.cast(),
 			size: len,
 			/* refs gets incremented when a buffer ref is constructed */
 			refs: AtomicU32::new(0),
@@ -60,7 +64,7 @@ impl Buffer {
 			user,
 			flags: 0,
 			flags_internal: BufferFlag::NoFree as u32
-		};
+		});
 
 		Ok(buffer)
 	}
@@ -68,7 +72,7 @@ impl Buffer {
 	fn data(&mut self) -> &mut [u8] {
 		unsafe {
 			slice::from_raw_parts_mut(
-				self.data.wrapping_add(size_of::<Buffer>()).cast(),
+				self.data.wrapping_add(size_of::<Buffer>()).as_mut_ptr(),
 				self.size
 			)
 		}
@@ -103,13 +107,13 @@ impl Buffer {
 	pub unsafe fn free(&mut self) {
 		let this = MutPtr::from(self);
 
-		if MutPtr::from(this.data).cast() == this {
+		if this.data.cast() == this {
 			unsafe {
-				dealloc(this.as_ptr_mut().cast(), Self::layout_for_size(this.size));
+				dealloc(this.as_mut_ptr().cast(), Self::layout_for_size(this.size));
 			}
 		} else {
 			unsafe {
-				dealloc(this.as_ptr_mut().cast(), Layout::new::<Self>());
+				dealloc(this.as_mut_ptr().cast(), Layout::new::<Self>());
 			}
 		}
 	}
@@ -121,14 +125,14 @@ pub struct BufferRef {
 
 impl BufferRef {
 	fn buffer(&mut self) -> MutPtr<Buffer> {
-		MutPtr::from(self.buffer.buffer.cast())
+		MutPtr::from(self.buffer.buffer).cast()
 	}
 
 	pub fn new() -> Self {
 		Self { buffer: unsafe { zeroed() } }
 	}
 
-	pub fn with_size(size: usize, free_fn: BufferFreeFn, user: *const ()) -> Result<Self> {
+	pub fn with_size(size: usize, free_fn: BufferFreeFn, user: Ptr<()>) -> Result<Self> {
 		Ok(unsafe { Self::from_buffer(Buffer::new(size, free_fn, user)?) })
 	}
 
@@ -137,7 +141,7 @@ impl BufferRef {
 
 		Self {
 			buffer: AVBufferRef {
-				buffer: buffer.as_ptr_mut().cast(),
+				buffer: buffer.as_mut_ptr().cast(),
 				data: buffer.data().as_mut_ptr(),
 				size: buffer.data().len()
 			}

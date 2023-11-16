@@ -1,10 +1,7 @@
-use std::{
-	ptr::{null, null_mut},
-	slice
-};
+use std::{ptr::null_mut, slice};
 
 use enumflags2::BitFlags;
-use xx_core::error::*;
+use xx_core::{error::*, pointer::Ptr};
 use xx_pulse::*;
 
 use super::*;
@@ -64,7 +61,7 @@ impl Packet {
 		let (buffer, data) = if let Some(pool) = pool {
 			pool.handle().alloc(total_size)?
 		} else {
-			let mut buffer = BufferRef::with_size(total_size, Buffer::default_free, null())?;
+			let mut buffer = BufferRef::with_size(total_size, Buffer::default_free, Ptr::null())?;
 			let data = buffer.data_mut().as_mut_ptr();
 
 			(buffer, data)

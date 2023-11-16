@@ -8,13 +8,13 @@ pub struct Rational {
 	den: u32
 }
 
-pub trait Scalable: Num + NumCast {}
+pub trait Scalar: Num + NumCast {}
 
-impl Scalable for u64 {}
+impl Scalar for u64 {}
 
-impl Scalable for i64 {}
+impl Scalar for i64 {}
 
-impl Scalable for f64 {}
+impl Scalar for f64 {}
 
 impl Rational {
 	pub fn gcd<T: PrimInt>(mut a: T, mut b: T) -> T {
@@ -90,7 +90,7 @@ impl Rational {
 		self
 	}
 
-	pub fn rescale<T: Scalable>(&self, value: T, base: Rational) -> T {
+	pub fn rescale<T: Scalar>(&self, value: T, base: Rational) -> T {
 		base * (self.invert() * value)
 	}
 
@@ -105,7 +105,7 @@ impl Default for Rational {
 	}
 }
 
-impl<T: Scalable> Mul<T> for Rational {
+impl<T: Scalar> Mul<T> for Rational {
 	type Output = T;
 
 	fn mul(self, rhs: T) -> T {

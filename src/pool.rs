@@ -27,7 +27,7 @@ impl Buffer {
 		}
 	}
 
-	fn new(size: usize, free_fn: BufferFreeFn, user: *const ()) -> Result<Self> {
+	fn new(size: usize, free_fn: BufferFreeFn, user: Ptr<()>) -> Result<Self> {
 		Ok(Self {
 			buffer_ref: BufferRef::with_size(size, free_fn, user)?,
 			used: 0
@@ -49,13 +49,14 @@ impl Buffer {
 	}
 }
 
+struct Buffers {
+	current: Option<Buffer>,
+	pool: VecDeque<MutPtr<buffer::Buffer>>
+}
+
 struct PoolInner {
 	buffer_size: usize,
-
-	lock: Mutex<()>,
-	current_buffer: Option<Buffer>,
-	buffers: VecDeque<MutPtr<buffer::Buffer>>,
-
+	buffers: Mutex<Buffers>,
 	refs: AtomicU32
 }
 
@@ -64,26 +65,23 @@ impl PoolInner {
 		let this = Box::new(Self {
 			buffer_size,
 
-			lock: Mutex::new(()),
-			current_buffer: None,
-			buffers: VecDeque::new(),
+			buffers: Mutex::new(Buffers { current: None, pool: VecDeque::new() }),
 
 			refs: AtomicU32::new(1)
 		});
 
-		MutPtr::from(Box::into_raw(this))
+		Box::into_raw(this).into()
 	}
 
-	extern "C" fn buffer_free(user: *const (), buffer: *mut buffer::Buffer) {
-		let mut pool: MutPtr<Self> = ConstPtr::from(user).cast();
-		let pool = pool.as_mut();
-		let lock = pool.lock.lock().unwrap();
+	extern "C" fn buffer_free(user: Ptr<()>, buffer: MutPtr<buffer::Buffer>) {
+		let mut pool = user.cast::<Self>().make_mut();
+		let mut buffers = pool.buffers.lock().unwrap();
 
-		pool.buffers.push_back(MutPtr::from(buffer));
+		buffers.pool.push_back(buffer);
 
 		/* drop lock here because we don't want to be releasing it after dec_ref
 		 * calls drop */
-		drop(lock);
+		drop(buffers);
 
 		pool.dec_ref();
 	}
@@ -102,7 +100,6 @@ impl PoolInner {
 		self.refs.fetch_add(1, Ordering::Relaxed);
 	}
 
-	#[inline(never)]
 	pub fn alloc(&mut self, size: usize) -> Result<(BufferRef, *mut u8)> {
 		let min_buffer_size = self.buffer_size;
 
@@ -111,46 +108,45 @@ impl PoolInner {
 				break;
 			}
 
-			let lock = self.lock.lock().unwrap();
-			let lock = if self
-				.current_buffer
+			let mut buffers = self.buffers.lock().unwrap();
+			let mut buffers = if buffers
+				.current
 				.as_ref()
 				.is_some_and(|buf| buf.remaining() >= size)
 			{
-				lock
+				buffers
 			} else {
 				/* not enough spare space */
-				let lock = if let Some(buffer) = self.current_buffer.take() {
+				let mut buffers = if let Some(buffer) = buffers.current.take() {
 					/* drop current buffer. requires lock isn't held, incase it gets
 					 * requeued immediately */
-					drop(lock);
+					drop(buffers);
 
 					self.inc_ref();
 
 					drop(buffer);
 
-					self.lock.lock().unwrap()
+					self.buffers.lock().unwrap()
 				} else {
-					lock
+					buffers
 				};
 
-				let buffer = match self.buffers.pop_front() {
+				let buffer = match buffers.pool.pop_front() {
 					Some(buffer) => buffer,
 					/* new allocation */
 					None => break
 				};
 
-				self.current_buffer = Some(Buffer::from_buffer(buffer));
-
-				lock
+				buffers.current = Some(Buffer::from_buffer(buffer));
+				buffers
 			};
 
-			let cur = self.current_buffer.as_mut().unwrap();
+			let cur = buffers.current.as_mut().unwrap();
 
 			/* buffer is guaranteed to have space here */
 			let buf = unsafe { cur.get_slice_unchecked(size) };
 
-			drop(lock);
+			drop(buffers);
 
 			return Ok(buf);
 		}
@@ -168,20 +164,19 @@ impl PoolInner {
 			} else {
 				buffer::Buffer::default_free
 			},
-			this.as_raw_ptr()
+			this.as_unit().into()
 		)?;
 
 		let buf = unsafe { buffer.get_slice_unchecked(size) };
 
 		if buffer_size == this.buffer_size {
-			let this = this.as_mut();
-			let lock = this.lock.lock().unwrap();
+			let mut buffers = this.buffers.lock().unwrap();
 
 			/* try insert into current_buffer, if none */
-			if this.current_buffer.is_none() {
-				this.current_buffer = Some(buffer);
+			if buffers.current.is_none() {
+				buffers.current = Some(buffer);
 			} else {
-				drop(lock);
+				drop(buffers);
 
 				/* this buffer gets restored to us later, so inc ref */
 				this.inc_ref();
@@ -198,14 +193,21 @@ impl Drop for PoolInner {
 		 * back here */
 		self.inc_ref();
 
-		if let Some(buffer) = self.current_buffer.take() {
+		let mut buffers = self.buffers.lock().unwrap();
+		let mut buffers = if let Some(buffer) = buffers.current.take() {
 			/* let the current buffer get reappended to our deque */
+			drop(buffers);
+
 			self.inc_ref();
 
 			drop(buffer);
-		}
 
-		for buffer in &mut self.buffers {
+			self.buffers.lock().unwrap()
+		} else {
+			buffers
+		};
+
+		for buffer in &mut buffers.pool {
 			unsafe {
 				buffer.free();
 			}
@@ -245,7 +247,7 @@ impl Pool {
 
 	pub fn handle(&self) -> PoolHandle<'_> {
 		PoolHandle {
-			pool: ConstPtr::from(self).cast(),
+			pool: Ptr::from(self).make_mut(),
 			phantom: PhantomData
 		}
 	}

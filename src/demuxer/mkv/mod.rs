@@ -208,7 +208,7 @@ impl Matroska {
 						info.timestamp_scale
 							.value
 							.try_into()
-							.map_err(Error::invalid_data_error)?,
+							.map_err(Error::map_as_invalid_data)?,
 						1_000_000_000
 					);
 

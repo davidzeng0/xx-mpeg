@@ -1,5 +1,6 @@
 use std::io::SeekFrom;
 
+use xx_core::{debug, error};
 use xx_url::{
 	http::{get, Body, HttpRequest},
 	net::connection::IpStrategy
@@ -42,6 +43,13 @@ impl HttpStream {
 
 		let response = HttpRequest::run(request).await?;
 
+		if !response.status().is_success() {
+			return Err(Error::new(
+				ErrorKind::Other,
+				format!("HTTP {}", response.status())
+			));
+		}
+
 		loop {
 			let Some(range) = response.headers().get("content-range") else {
 				break;
@@ -81,10 +89,44 @@ impl HttpStream {
 	}
 }
 
+#[async_trait_impl]
 impl Read for HttpStream {
-	read_wrapper! {
-		inner = body;
-		mut inner = body;
+	async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+		match self.body.read(buf).await {
+			Ok(n) => {
+				self.position += n as u64;
+
+				return Ok(n);
+			}
+
+			Err(err) => {
+				if err.is_interrupted() {
+					return Err(err);
+				}
+
+				error!(target: self, "== Read from body failed: {:?}", err)
+			}
+		}
+
+		let old_pos = self.position;
+
+		debug!(target: self, "== Retrying stream at position = {}", self.position);
+
+		self.seek(SeekFrom::Start(self.position)).await?;
+
+		debug!(target: self, "== After seek, position = {}", self.position);
+
+		if self.position != old_pos {
+			return Err(Error::new(ErrorKind::Other, "HTTP retry failed"));
+		}
+
+		let result = self.body.read(buf).await;
+
+		if let Ok(n) = &result {
+			self.position += *n as u64;
+		}
+
+		return result;
 	}
 }
 
@@ -106,8 +148,16 @@ impl Seek for HttpStream {
 		Ok(self.position)
 	}
 
+	fn stream_position_fast(&self) -> bool {
+		true
+	}
+
 	async fn stream_position(&mut self) -> Result<u64> {
-		Err(Error::new(ErrorKind::Other, "Cannot use stream_position"))
+		Ok(self.position)
+	}
+
+	fn stream_len_fast(&self) -> bool {
+		true
 	}
 
 	async fn stream_len(&mut self) -> Result<u64> {

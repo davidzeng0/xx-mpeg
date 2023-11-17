@@ -16,8 +16,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    - run: uname -a
     - name: Install dependencies
-      run: sudo apt install -y libopus-dev libavcodec-dev libavcodec58 libavformat-dev libavformat58 libavutil-dev libavutil56 libavfilter7 libavfilter-dev libswresample-dev libswresample3 libavdevice-dev libavdevice58
+      run: |
+        git clone https://github.com/FFmpeg/FFmpeg
+        cd FFmpeg
+        ./configure --arch=amd64 --disable-stripping --enable-openssl --enable-libmp3lame --enable-libopus --enable-libvorbis --enable-shared --enable-nonfree
+        make -j $(nproc)
+        sudo make install
     - name: Build
       run: cargo build --verbose
     - name: Run tests

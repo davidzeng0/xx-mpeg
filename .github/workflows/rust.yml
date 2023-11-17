@@ -16,13 +16,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - run: uname -a
     - name: Install dependencies
       run: |
-        sudo apt install libopus-dev
+        sudo apt install libopus-dev nasm
         git clone https://github.com/FFmpeg/FFmpeg
         cd FFmpeg
-        ./configure --arch=amd64 --disable-stripping --enable-libopus --enable-libvorbis --enable-shared --disable-x86asm
+        ./configure --arch=amd64 --disable-stripping --enable-libopus --enable-shared
         make -j $(nproc)
         sudo make install
         cd ..

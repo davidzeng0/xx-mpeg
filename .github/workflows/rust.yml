@@ -22,7 +22,7 @@ jobs:
         sudo apt install libopus-dev
         git clone https://github.com/FFmpeg/FFmpeg
         cd FFmpeg
-        ./configure --arch=amd64 --disable-stripping --enable-openssl --enable-libmp3lame --enable-libopus --enable-libvorbis --enable-shared --enable-nonfree --disable-x86asm
+        ./configure --arch=amd64 --disable-stripping --enable-libopus --enable-libvorbis --enable-shared --disable-x86asm
         make -j $(nproc)
         sudo make install
         cd ..

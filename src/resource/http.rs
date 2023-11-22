@@ -104,7 +104,7 @@ impl Read for HttpStream {
 					return Err(err);
 				}
 
-				error!(target: self, "== Read from body failed: {:?}", err)
+				error!(target: self, "== Read from body failed, retrying ({:?})", err)
 			}
 		}
 

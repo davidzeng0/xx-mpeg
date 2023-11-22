@@ -1,6 +1,11 @@
 use std::{io::SeekFrom, mem::size_of};
 
-use xx_core::{async_std::io::*, error::*, impls::UIntExtensions, opt::hint::*};
+use xx_core::{
+	async_std::io::{typed::BufReadTyped, *},
+	error::*,
+	impls::UIntExtensions,
+	opt::hint::*
+};
 use xx_pulse::*;
 
 use crate::resource::*;
@@ -8,7 +13,7 @@ use crate::resource::*;
 pub const DEFAULT_SEEK_THRESHOLD: u64 = 512 * 1024;
 
 pub struct Reader {
-	stream: TypedReader<BufReader<Stream>>,
+	stream: BufReader<Stream>,
 	position: u64,
 	seek_threshold: u64,
 	peeking: Option<u64>,
@@ -105,7 +110,7 @@ impl Reader {
 		let seek_threshold = stream.suggested_seek_threshold();
 
 		Self {
-			stream: TypedReader::new(BufReader::new(stream)),
+			stream: BufReader::new(stream),
 			position: 0,
 			seek_threshold,
 			peeking: None,
@@ -137,9 +142,7 @@ impl Reader {
 					return Err(unexpected_end_of_stream());
 				}
 			} else {
-				unsafe {
-					self.stream.consume_unchecked(left);
-				}
+				self.stream.consume(left);
 
 				break;
 			}
@@ -158,9 +161,7 @@ impl Reader {
 			self.position = self.position.wrapping_add_signed(rel);
 
 			if rel < 0 && -rel as usize <= self.stream.position() {
-				unsafe {
-					self.stream.consume_unchecked(rel as usize);
-				}
+				self.stream.unconsume(-rel as usize);
 			} else {
 				self.position = self.stream.seek(SeekFrom::Start(self.position)).await?;
 			}

@@ -25,7 +25,7 @@ jobs:
           submodules: true
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Set up QEMU
+      - name: Build image
         run: docker build -t rust .github/workflows
       - name: Finalize setup
         run: |

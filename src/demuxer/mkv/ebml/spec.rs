@@ -1,185 +1,57 @@
-use xx_mpeg_macros::ebml_element;
+#![allow(clippy::unreadable_literal)]
 
 use super::*;
 
-ebml_element! {
-	struct Header {
-		const ID = 0x1a45dfa3;
-
-		version: Version,
-		reader_version: ReaderVersion,
-		max_id_length: MaxIdLength,
-		max_size_length: MaxSizeLength,
-		doc_type: DocType,
-		doc_type_version: DocTypeVersion,
-		doc_type_reader_version: DocTypeReaderVersion,
-		doc_type_extension: Vec<DocTypeExtension>
-	}
-}
-
-ebml_element! {
-	struct Version {
-		const ID = 0x4286;
-
-		value: vint
+ebml_define! {
+	#[allow(dead_code)]
+	pub struct Header {
+		pub version: Unsigned @ 0x4286 = 1,
+		pub reader_version: NonZeroUnsigned @ 0x42f7 = 1,
+		pub max_id_length: Unsigned @ 0x42f2 = 4,
+		pub max_size_length: NonZeroUnsigned @ 0x42f3 = 8,
+		pub doc_type: NonEmptyString @ 0x4282,
+		pub doc_type_version: NonZeroUnsigned @ 0x4287 = 1,
+		pub doc_type_reader_version: NonZeroUnsigned @ 0x4285 = 1,
+		pub doc_type_extensions: Option<Vec<DocTypeExtension>> @ 0x4281
 	}
 
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
+	fn check(&mut self) -> Result<()> {
+		if self.max_id_length.0 >= 4 {
 			Ok(())
 		} else {
-			Err(Error::new(ErrorKind::InvalidData, "EBML version cannot be zero"))
+			Err(FormatError::InvalidData("Invalid value for `MaxIdLength`".into()).into())
 		}
 	}
 }
 
-ebml_element! {
-	struct ReaderVersion {
-		const ID = 0x42f7;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "EBML reader version cannot be zero"))
-		}
+ebml_define! {
+	#[allow(dead_code)]
+	pub struct DocTypeExtension {
+		pub name: NonEmptyString @ 0x4283,
+		pub version: NonZeroUnsigned @ 0x4284
 	}
 }
 
-ebml_element! {
-	struct MaxIdLength {
-		const ID = 0x42f2;
+ebml_define! {
+	#[allow(dead_code)]
+	pub struct Crc32(pub u32);
+}
 
-		value: vint
-	}
+ebml_define! {
+	pub struct Void(pub ());
+}
 
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value >= 4 && self.value <= 8 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "EBML max id length out of range"))
-		}
+ebml_define! {
+	#[allow(dead_code)]
+	pub struct EbmlRoot {
+		pub header: Header @ 0x1a45dfa3,
 	}
 }
 
-ebml_element! {
-	struct MaxSizeLength {
-		const ID = 0x42f3;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "EBML max size length cannot be zero"))
-		}
-	}
-}
-
-ebml_element! {
-	struct DocType {
-		const ID = 0x4282;
-
-		value: String
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if !self.value.is_empty() {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "EBML doc type cannot be empty"))
-		}
-	}
-}
-
-ebml_element! {
-	struct DocTypeVersion {
-		const ID = 0x4287;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "EBML doc type version cannot be zero"))
-		}
-	}
-}
-
-ebml_element! {
-	struct DocTypeReaderVersion {
-		const ID = 0x4285;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "EBML doc type reader version cannot be zero"))
-		}
-	}
-}
-
-ebml_element! {
-	struct DocTypeExtension {
-		const ID = 0x4281;
-
-		name: DocTypeExtensionName,
-		version: DocTypeExtensionVersion
-	}
-}
-
-ebml_element! {
-	struct DocTypeExtensionName {
-		const ID = 0x4283;
-
-		value: String
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if !self.value.is_empty() {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "EBML doc type extension cannot be empty"))
-		}
-	}
-}
-
-ebml_element! {
-	struct DocTypeExtensionVersion {
-		const ID = 0x4283;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "EBML doc type extension version cannot be zero"))
-		}
-	}
-}
-
-ebml_element! {
-	struct Crc32 {
-		const ID = 0xbf;
-
-		value: u32
-	}
-}
-
-ebml_element! {
-	struct Void {
-		const ID = 0xec;
+ebml_define! {
+	#[allow(dead_code)]
+	pub struct EbmlGlobal {
+		pub crc32: Option<Crc32> @ 0xbf,
+		pub void: Option<Vec<Void>> @ 0xec
 	}
 }

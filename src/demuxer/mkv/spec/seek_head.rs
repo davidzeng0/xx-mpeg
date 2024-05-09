@@ -1,34 +1,16 @@
 use super::*;
 
-ebml_element! {
-	struct SeekHead {
-		const ID = 0x114d9b74;
-
-		seek: Vec<Seek>
+ebml_define! {
+	#[allow(dead_code)]
+	pub struct SeekHead {
+		pub seek: Vec<Seek> @ 0x4dbb
 	}
 }
 
-ebml_element! {
-	struct Seek {
-		const ID = 0x4dbb;
-
-		id: Id,
-		position: Position
-	}
-}
-
-ebml_element! {
-	struct Id {
-		const ID = 0x53ab;
-
-		value: vint
-	}
-}
-
-ebml_element! {
-	struct Position {
-		const ID = 0x53ac;
-
-		value: vint
+ebml_define! {
+	#[allow(dead_code)]
+	pub struct Seek {
+		pub id: VIntId @ 0x53ab,
+		pub position: Unsigned @ 0x53ac
 	}
 }

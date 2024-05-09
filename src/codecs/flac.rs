@@ -5,12 +5,12 @@ codec_pair!(CodecId::Flac, None, AV_CODEC_ID_FLAC, Flac);
 pub struct FlacParser;
 
 impl FlacParser {
-	pub fn new(_: &mut CodecParams) -> Result<Box<dyn CodecParserTrait>> {
+	pub fn new(_: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
 		Ok(Box::new(Self))
 	}
 }
 
-impl CodecParserTrait for FlacParser {
+impl CodecParserImpl for FlacParser {
 	fn id(&self) -> CodecId {
 		CodecId::Flac
 	}

@@ -1,20 +1,45 @@
-use std::marker::PhantomData;
+use std::{
+	io::SeekFrom,
+	mem::size_of,
+	ops::{Deref, DerefMut}
+};
 
-use xx_core::{error::*, trace};
-use xx_pulse::*;
+use num_traits::FromPrimitive;
+use xx_core::{error::*, impls::AsyncFnMut, trace, warn};
 
 use super::*;
 
 mod ebml;
-use ebml::{spec::*, *};
-
 mod spec;
-use num_traits::FromPrimitive;
-use spec::*;
 
-use super::{CodecId, MediaType};
+use ebml::{parse::*, spec::*, *};
+use spec::{
+	cluster::*,
+	cues::*,
+	seek_head::*,
+	segment_info::*,
+	tracks::{TrackType, Tracks},
+	*
+};
 
-#[derive(Default)]
+#[errors]
+enum MatroskaError {
+	#[error("Unsupported EBML version {0}")]
+	UnknownEbmlVersion(u64),
+
+	#[error("EBML id length too long ({0} bytes)")]
+	IdTooLong(u64),
+
+	#[error("EBML size length too long ({0} bytes)")]
+	SizeTooLong(u64),
+
+	#[error("Unknown doc type {0}")]
+	UnknownDocType(String),
+
+	#[error("Unknown doc type version {0}")]
+	UnknownDocTypeVersion(u64)
+}
+
 struct Block {
 	track_id: u64,
 	timecode: u64,
@@ -25,38 +50,38 @@ struct Block {
 struct Matroska {
 	reader: Reader,
 
-	stack: [MasterElement; 16],
+	stack: [MasterElemHdr; 16],
 	level: usize,
 
+	seen_header: bool,
 	tracks: Option<Tracks>,
-	duration: f64,
-
-	timecode_scale: Rational,
-
 	seek_head: Option<SeekHead>,
 	cues: Option<Cues>,
+
+	duration: f64,
+	timecode_scale: Rational,
 
 	segment_offset: u64,
 	cluster_timecode: u64,
 	block: Option<Block>
 }
 
-#[async_fn]
+#[asynchronous]
 impl Matroska {
 	fn new(reader: Reader) -> Self {
 		Self {
 			reader,
 
-			stack: [MasterElement::ROOT; 16],
+			stack: [MasterElemHdr::default(); 16],
 			level: 0,
 
+			seen_header: false,
 			tracks: None,
-			duration: 0.0,
-
-			timecode_scale: Rational::default(),
-
 			seek_head: None,
 			cues: None,
+
+			duration: 0.0,
+			timecode_scale: Rational::default(),
 
 			segment_offset: 0,
 			cluster_timecode: 0,
@@ -64,75 +89,72 @@ impl Matroska {
 		}
 	}
 
-	fn stack_push(&mut self, master: MasterElement) {
+	fn stack_push(&mut self, master: MasterElemHdr) {
 		self.stack[self.level] = master;
-		self.level += 1;
+
+		#[allow(clippy::arithmetic_side_effects)]
+		(self.level += 1);
 	}
 
+	#[allow(clippy::unwrap_used)]
 	fn stack_pop(&mut self) {
 		self.level = self.level.checked_sub(1).unwrap();
 	}
 
-	async fn post_read(&mut self, element: Element) -> Result<()> {
-		if element.end != UNKNOWN_END {
-			let pos = self.reader().position();
+	fn new_segment(&mut self) {
+		self.tracks = None;
+		self.seek_head = None;
+		self.cues = None;
+		self.duration = 0.0;
+		self.cluster_timecode = 0;
+		self.block = None;
+	}
 
-			if pos < element.end {
-				let indents = self.level * 2;
+	async fn post_read(&mut self, element: &ElemHdr) -> Result<()> {
+		#[allow(clippy::never_loop)]
+		loop {
+			let Some(end) = element.end else { break };
 
-				trace!(target: self, "== {: <indents$}Remaining {} bytes in element", "", element.end - pos);
-				skip_element(self.reader(), &element).await?;
-			} else if pos > element.end {
-				return Err(Error::new(
-					ErrorKind::InvalidData,
-					"Read element out of bounds"
-				));
+			let remaining = end
+				.get()
+				.checked_sub(self.position())
+				.ok_or(FormatError::ReadOverflow)?;
+
+			if remaining == 0 {
+				break;
 			}
+
+			#[allow(clippy::arithmetic_side_effects)]
+			let indents = self.level * 2;
+
+			trace!(target: &*self, "== {: <indents$}Remaining {} bytes in element", "", remaining);
+
+			self.skip_element(element).await?;
 		}
 
 		Ok(())
 	}
 
-	fn handle_header(&self, header: &Header) -> Result<()> {
-		if header.version.value != 1 {
-			return Err(Error::new(
-				ErrorKind::Unsupported,
-				format!("Unsupported EBML version {}", header.version.value)
-			));
+	fn verify_header(header: &Header) -> Result<()> {
+		if header.version.0 != 1 {
+			return Err(MatroskaError::UnknownEbmlVersion(header.version.0).into());
 		}
 
-		if header.max_id_length.value > 8 {
-			return Err(Error::new(
-				ErrorKind::Unsupported,
-				format!("Unsupported EBML max id length")
-			));
+		if header.max_id_length.0 > size_of::<u64>() as u64 {
+			return Err(MatroskaError::IdTooLong(header.max_id_length.0).into());
 		}
 
-		if header.max_size_length.value > 8 {
-			return Err(Error::new(
-				ErrorKind::Unsupported,
-				format!("Unsupported EBML max size length")
-			));
+		if header.max_size_length.0 > size_of::<u64>() as u64 {
+			return Err(MatroskaError::SizeTooLong(header.max_size_length.0).into());
 		}
 
-		match &header.doc_type.value as &str {
+		match header.doc_type.0.as_ref() {
 			"matroska" | "webm" => (),
-			ty => {
-				return Err(Error::new(
-					ErrorKind::Unsupported,
-					format!("Unknown doc type {}", ty)
-				))
-			}
+			ty => return Err(MatroskaError::UnknownDocType(ty.into()).into())
 		}
 
-		if header.doc_type_version.value > 4 {
-			return Err(Error::new(
-				ErrorKind::Unsupported,
-				format!(
-					"Unimplemented doc type version {}",
-					header.doc_type_version.value
-				)
-			));
+		if header.doc_type_version.0 > 4 {
+			return Err(MatroskaError::UnknownDocTypeVersion(header.doc_type_version.0).into());
 		}
 
 		Ok(())
@@ -140,18 +162,19 @@ impl Matroska {
 
 	async fn read_root(&mut self) -> Result<()> {
 		if self.level == 0 {
-			self.stack_push(MasterElement::ROOT);
+			self.stack_push(MasterElemHdr::root::<PartialMatroskaRoot>());
 		}
 
 		let mut stop = false;
 
 		while !stop {
+			#[allow(clippy::arithmetic_side_effects)]
 			let master = &self.stack[self.level - 1];
 
-			let element = match next_element(&mut self.reader, &master.element).await? {
+			let element = match master.next_element(&mut self.reader).await? {
 				Some(element) => element,
 				None => {
-					self.post_read(master.element.clone()).await?;
+					self.post_read(&master.element.clone()).await?;
 					self.stack_pop();
 
 					if self.level == 0 {
@@ -162,109 +185,132 @@ impl Matroska {
 				}
 			};
 
-			if element.end == UNKNOWN_END {
-				return Err(Error::new(
-					ErrorKind::Unsupported,
-					"Elements with unknown size are not currently supported"
-				));
+			if !element.known_end() {
+				let msg = "Elements with unknown size are not currently supported";
+
+				return Err(FormatError::InvalidData(msg.into()).into());
 			}
 
 			if !master.is_child(element.id) {
+				#[allow(clippy::arithmetic_side_effects)]
 				let indents = self.level * 2;
 
-				trace!(target: self, "== {: <indents$}Skipping unknown element with id {} of size {}", "", element.id, element.size);
-				skip_element(self.reader(), &element).await?;
+				trace!(target: &*self, "== {: <indents$}Skipping unknown element with id {} of size {}", "", element.id, element.size);
+
+				self.skip_element(&element).await?;
 
 				continue;
 			}
 
 			match element.id {
-				Header::ID => {
-					self.pre_parse::<Header>(&element, PhantomData)?;
+				EbmlRoot::HEADER_ID => {
+					self.trace_element("Header", &element);
 
 					let header = Header::parse(self, &element).await?;
 
-					self.handle_header(&header)?;
+					self.seen_header = true;
+					Self::verify_header(&header)?;
 				}
 
-				Segment::ID => {
-					self.pre_parse::<Segment>(&element, PhantomData)?;
+				MatroskaRoot::SEGMENTS_ID => {
+					if !self.seen_header {
+						warn!(target: &*self, "== Ebml header not found");
+
+						self.seen_header = true;
+					}
+
+					self.trace_element("Segment", &element);
+					self.stack_push(MasterElemHdr { element, children: PartialSegment::CHILDREN });
+					self.new_segment();
 					self.segment_offset = element.offset;
-					self.stack_push(MasterElement { element, children: Segment::CHILDREN });
 
 					continue;
 				}
 
-				SegmentInfo::ID => {
-					self.pre_parse::<SegmentInfo>(&element, PhantomData)?;
+				Segment::INFO_ID => {
+					self.trace_element("SegmentInfo", &element);
 
 					let info = SegmentInfo::parse(self, &element).await?;
 
 					if let Some(duration) = info.duration {
-						self.duration = duration.value;
+						self.duration = duration.0;
 					}
 
-					let mut timescale = Rational::new(
-						info.timestamp_scale
-							.value
-							.try_into()
-							.map_err(Error::map_as_invalid_data)?,
-						1_000_000_000
-					);
+					let num = info
+						.timestamp_scale
+						.0
+						.try_into()
+						.map_err(|_| FormatError::invalid_data())?;
 
-					timescale.reduce();
+					let timescale = Rational::new(num, 1_000_000_000);
 
-					self.timecode_scale = timescale;
+					self.timecode_scale = timescale.reduce();
 				}
 
-				SeekHead::ID => {
-					self.pre_parse::<SeekHead>(&element, PhantomData)?;
+				Segment::SEEK_HEAD_ID => {
+					self.trace_element("SeekHead", &element);
 					self.seek_head = Some(SeekHead::parse(self, &element).await?);
 				}
 
-				Tracks::ID => {
-					self.pre_parse::<Tracks>(&element, PhantomData)?;
+				Segment::TRACKS_ID => {
+					self.trace_element("Tracks", &element);
 					self.tracks = Some(Tracks::parse(self, &element).await?);
 
 					stop = true;
 				}
 
-				Cues::ID => {
-					self.pre_parse::<Cues>(&element, PhantomData)?;
+				Segment::CUES_ID => {
+					self.trace_element("Cues", &element);
 					self.cues = Some(Cues::parse(self, &element).await?);
 				}
 
-				Cluster::ID => {
-					self.pre_parse::<Cluster>(&element, PhantomData)?;
-					self.stack_push(MasterElement { element, children: Cluster::CHILDREN });
+				Segment::CLUSTERS_ID => {
+					self.trace_element("Cluster", &element);
+					self.stack_push(MasterElemHdr { element, children: PartialCluster::CHILDREN });
 
 					continue;
 				}
 
-				Timestamp::ID => {
-					self.pre_parse::<Timestamp>(&element, PhantomData)?;
-					self.cluster_timecode = Timestamp::parse(self, &element).await?.value;
+				Cluster::TIMESTAMP_ID => {
+					self.trace_element("Timestamp", &element);
+					self.cluster_timecode = Unsigned::parse(self, &element).await?.0;
 				}
 
-				SimpleBlock::ID => {
-					self.pre_parse::<SimpleBlock>(&element, PhantomData)?;
+				Cluster::BLOCK_GROUPS_ID => {
+					self.trace_element("BlockGroup", &element);
+					self.stack_push(MasterElemHdr {
+						element,
+						children: PartialBlockGroup::CHILDREN
+					});
 
-					let mut block = Block::default();
+					continue;
+				}
 
-					block.track_id = read_vint(self.reader(), VintKind::Unsigned).await?;
-					block.timecode =
-						self.reader().read_u16_be().await? as u64 + self.cluster_timecode;
-					block.flags = self.reader().read_u8().await?;
+				id @ (Cluster::SIMPLE_BLOCKS_ID | BlockGroup::BLOCK_ID) => {
+					self.trace_element(
+						if id == Cluster::SIMPLE_BLOCKS_ID {
+							"SimpleBlock"
+						} else {
+							"Block"
+						},
+						&element
+					);
 
-					let remaining = element.remaining(self.reader.position());
+					let header = BlockHeader::parse(self, &element).await?;
 
-					if remaining < 0 {
-						return Err(Error::new(ErrorKind::InvalidData, "Block read overflow"));
-					}
+					#[allow(clippy::unwrap_used)]
+					let size = element.remaining(self.reader.position()).unwrap();
+					let timecode = self
+						.cluster_timecode
+						.checked_add(header.timecode as u64)
+						.ok_or(Core::Overflow)?;
 
-					block.size = remaining as u64;
-
-					self.block = Some(block);
+					self.block = Some(Block {
+						track_id: header.track_id.0,
+						timecode,
+						flags: header.flags,
+						size
+					});
 
 					break;
 				}
@@ -272,138 +318,166 @@ impl Matroska {
 				_ => ()
 			}
 
-			self.post_read(element).await?;
+			self.post_read(&element).await?;
 		}
 
 		Ok(())
 	}
 }
 
-#[async_trait_impl]
-impl Parser for Matroska {
-	fn reader(&mut self) -> &mut Reader {
+impl Deref for Matroska {
+	type Target = Reader;
+
+	fn deref(&self) -> &Reader {
+		&self.reader
+	}
+}
+
+impl DerefMut for Matroska {
+	fn deref_mut(&mut self) -> &mut Reader {
 		&mut self.reader
 	}
+}
 
-	async fn read_children<F: FnMut(&mut Self, &Element) -> Result<()>>(
-		&mut self, master: &MasterElement, mut handle_child: F
-	) -> Result<()> {
-		self.level += 1;
+#[asynchronous]
+impl EbmlReader for Matroska {
+	async fn read_children<F>(&mut self, master: &MasterElemHdr, mut handle_child: F) -> Result<()>
+	where
+		F: for<'a, 'b> AsyncFnMut<(&'a mut Self, &'b ElemHdr), Output = Result<bool>>
+	{
+		#[allow(clippy::arithmetic_side_effects)]
+		(self.level += 1);
 
-		read_children(self, master, |parser, element| {
-			handle_child(parser, element)?;
+		default_read_children(
+			self,
+			master,
+			|this: &mut Self, element: &ElemHdr| async move {
+				let matched = handle_child.call_mut((this, element)).await?;
 
-			parser.post_read(element.clone()).await
-		})
+				this.post_read(element).await?;
+
+				Ok(matched)
+			}
+		)
 		.await?;
 
-		self.level -= 1;
-		self.post_read(master.element.clone()).await?;
+		#[allow(clippy::arithmetic_side_effects)]
+		(self.level -= 1);
+		self.post_read(&master.element).await?;
 
 		Ok(())
 	}
 
-	#[inline(always)]
-	fn pre_parse<E: Parse>(&self, element: &Element, _: PhantomData<E>) -> Result<()> {
+	fn trace_element(&self, name: &str, element: &ElemHdr) {
+		#[allow(clippy::arithmetic_side_effects)]
 		let indents = (self.level - 1) * 2;
 
 		trace!(
 			target: self,
 			"== {: <indents$}{: <20} : {} @ {}", "",
-			E::NAME,
+			name,
 			element.size,
 			element.offset
 		);
-
-		Ok(())
 	}
 }
 
-fn get_track_type(ty: u64) -> Result<super::MediaType> {
-	let ty = match tracks::TrackType::from_u64(ty) {
-		Some(ty) => ty,
-		None => return Err(Error::new(ErrorKind::InvalidData, "Unknown track type"))
-	};
-
-	Ok(match ty {
-		tracks::TrackType::Video => MediaType::Video,
-		tracks::TrackType::Audio => MediaType::Audio,
-		_ => MediaType::Other
-	})
+const fn get_track_type(ty: TrackType) -> MediaType {
+	match ty {
+		TrackType::Video => MediaType::Video,
+		TrackType::Audio => MediaType::Audio,
+		TrackType::Subtitle => MediaType::Subtitle,
+		_ => MediaType::Unknown
+	}
 }
 
 fn get_track_codec(id: &str) -> CodecId {
 	match id {
-		"A_OPUS" => CodecId::Opus,
-		"A_VORBIS" => CodecId::Vorbis,
 		"A_AAC" => CodecId::Aac,
+		"A_OPUS" => CodecId::Opus,
 		"A_FLAC" => CodecId::Flac,
+		"A_VORBIS" => CodecId::Vorbis,
+		"A_MPEG/L3" => CodecId::Mp3,
 		_ => CodecId::Unknown
 	}
 }
 
-fn get_track_codec_params(track: &tracks::Track) -> CodecParams {
+#[allow(clippy::field_reassign_with_default)]
+fn get_track_codec_params(track: &tracks::Track) -> Result<CodecParams> {
+	fn conv_float(value: f64) -> Result<u32> {
+		#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+		let result = value as u32;
+
+		if result as f64 == value {
+			Ok(result)
+		} else {
+			Err(Core::Overflow.into())
+		}
+	}
+
+	fn trunc<T>(value: u64) -> Result<T>
+	where
+		T: TryFrom<u64>
+	{
+		T::try_from(value).map_err(|_| Core::Overflow.into())
+	}
+
 	let mut params = CodecParams::default();
 
-	params.id = get_track_codec(&track.codec_id.value as &str);
+	params.id = get_track_codec(&track.codec_id);
 
 	if let Some(private) = &track.codec_private {
-		params.config = private.value.clone();
+		params.config.clone_from(&private.0);
 	}
 
 	if let Some(audio) = &track.audio {
-		params.sample_rate = audio.sampling_frequency.value as u32;
-		params.channels = audio.channels.value as u16;
+		params.sample_rate = conv_float(audio.sampling_frequency.0)?;
+		params.channels = trunc(audio.channels.0)?;
 
 		if let Some(output_sr) = &audio.output_sampling_frequency {
-			params.sample_rate = output_sr.value as u32;
+			params.sample_rate = conv_float(output_sr.0)?;
 		}
 
 		if let Some(bit_depth) = &audio.bit_depth {
-			params.bit_depth = bit_depth.value as u16;
+			params.bit_depth = trunc(bit_depth.0)?;
 		}
 	}
 
 	params.time_base = Rational::nanos();
-	params.delay = track.codec_delay.value as u32;
-	params.seek_preroll = track.seek_preroll.value as u32;
-	params
+	params.delay = trunc(track.codec_delay.0)?;
+	params.seek_preroll = trunc(track.seek_preroll.0)?;
+
+	Ok(params)
 }
 
-#[async_trait_impl]
-impl DemuxerTrait for Matroska {
-	async fn open(&mut self, context: &mut FormatContext) -> Result<()> {
+#[asynchronous]
+impl DemuxerImpl for Matroska {
+	#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+	async fn open(&mut self, context: &mut FormatData) -> Result<()> {
 		self.read_root().await?;
 
-		let tracks = match self.tracks.take() {
-			Some(tracks) => tracks,
-			None => {
-				return Err(Error::new(
-					ErrorKind::InvalidData,
-					"Could not find any tracks"
-				))
-			}
-		};
+		let tracks = self.tracks.as_ref().ok_or(FormatError::NoTracks)?;
 
 		context.duration = self.duration as u64;
 		context.time_base = self.timecode_scale;
 
 		for track in &tracks.tracks {
-			let params = get_track_codec_params(track);
+			let params = get_track_codec_params(track)?;
+
 			let parse = if params.id != CodecId::Aac {
 				CodecParse::Header
 			} else {
 				CodecParse::default()
 			};
 
-			context.tracks.push(super::Track {
-				ty: get_track_type(track.ty.value)?,
+			context.tracks.push(Track {
+				ty: get_track_type(track.ty),
 				codec_params: params,
-				id: track.number.value,
+				id: track.number.0,
 				duration: self.duration as u64,
 				time_base: self.timecode_scale,
 				parse,
-				..std::default::Default::default()
+				..Default::default()
 			});
 		}
 
@@ -411,12 +485,52 @@ impl DemuxerTrait for Matroska {
 	}
 
 	async fn seek(&mut self, track: u32, timecode: u64) -> Result<()> {
+		#[allow(clippy::unwrap_used)]
+		let track = &self.tracks.as_ref().unwrap().tracks[track as usize];
+		let cues = self.cues.as_ref().ok_or(FormatError::CannotSeek)?;
+
+		#[allow(clippy::arithmetic_side_effects)]
+		let index = match cues
+			.points
+			.binary_search_by(|point| point.time.0.cmp(&timecode))
+		{
+			Ok(index) => index,
+			Err(index) => index - 1
+		};
+
+		let mut cluster_position = None;
+
+		for point in cues.points[0..=index].iter().rev() {
+			if let Some(pos) = point
+				.track_positions
+				.iter()
+				.find(|pos| pos.track == track.number)
+			{
+				cluster_position = Some(pos.cluster_position.0);
+
+				break;
+			}
+		}
+
+		let offset = self
+			.segment_offset
+			.checked_add(cluster_position.unwrap_or(0))
+			.ok_or(Core::Overflow)?;
+
+		self.reader.seek(SeekFrom::Start(offset)).await?;
+
+		#[allow(clippy::arithmetic_side_effects)]
+		while self.stack[self.level - 1].element.id != MatroskaRoot::SEGMENTS_ID {
+			self.stack_pop();
+		}
+
+		self.block = None;
+
 		Ok(())
 	}
 
-	async fn read_packet(
-		&mut self, context: &mut FormatContext, packet: &mut Packet, pool: Option<&Pool>
-	) -> Result<bool> {
+	#[allow(clippy::unwrap_used)]
+	async fn read_packet(&mut self, context: &mut FormatData, packet: &mut Packet) -> Result<bool> {
 		if self.block.is_none() {
 			self.read_root().await?;
 		}
@@ -426,15 +540,17 @@ impl DemuxerTrait for Matroska {
 			None => return Ok(false)
 		};
 
-		*packet = context.alloc_packet_for(block.track_id, block.size, pool)?;
-
-		packet.timestamp = block.timecode as i64;
+		context.get_packet_fields_for(packet, block.track_id)?;
+		packet.timestamp = block.timecode.try_into().unwrap();
 
 		if block.flags & 0x80 != 0 {
 			packet.flags |= PacketFlag::Keyframe;
 		}
 
-		self.reader.read(packet.data_mut()).await?;
+		packet.data = self
+			.reader
+			.read_bytes(block.size.try_into().unwrap())
+			.await?;
 
 		Ok(true)
 	}
@@ -444,17 +560,27 @@ struct Probe<'a> {
 	reader: &'a mut Reader
 }
 
-#[async_trait_impl]
-impl<'a> Parser for Probe<'a> {
-	fn reader(&mut self) -> &mut Reader {
+impl Deref for Probe<'_> {
+	type Target = Reader;
+
+	fn deref(&self) -> &Reader {
 		self.reader
 	}
 }
 
+impl DerefMut for Probe<'_> {
+	fn deref_mut(&mut self) -> &mut Reader {
+		self.reader
+	}
+}
+
+impl EbmlReader for Probe<'_> {}
+
+#[allow(missing_copy_implementations)]
 pub struct MatroskaClass;
 
-#[async_trait_impl]
-impl DemuxerClassTrait for MatroskaClass {
+#[asynchronous]
+impl DemuxerClassImpl for MatroskaClass {
 	fn name(&self) -> &'static str {
 		"Matroska"
 	}
@@ -464,19 +590,23 @@ impl DemuxerClassTrait for MatroskaClass {
 	}
 
 	async fn probe(&self, reader: &mut Reader) -> Result<f32> {
-		let master = MasterElement::ROOT;
 		let mut probe = Probe { reader };
 		let mut score = 0.0;
 
+		let master = MasterElemHdr::root::<PartialMatroskaRoot>();
+
 		for _ in 0..4 {
-			let element = match next_element(probe.reader, &master.element).await? {
+			let element = match master.next_element(probe.reader).await? {
 				Some(element) => element,
 				None => break
 			};
 
 			match element.id {
-				Void::ID | Crc32::ID | Segment::ID => score = 0.25,
-				Header::ID => {
+				EbmlGlobal::VOID_ID | EbmlGlobal::CRC_32_ID | MatroskaRoot::SEGMENTS_ID => {
+					score = 0.25;
+				}
+
+				EbmlRoot::HEADER_ID => {
 					if Header::parse(&mut probe, &element).await.is_ok() {
 						score = 1.0;
 					} else {
@@ -485,8 +615,11 @@ impl DemuxerClassTrait for MatroskaClass {
 
 					break;
 				}
-				_ => break
+
+				_ => ()
 			}
+
+			probe.skip_element(&element).await?;
 		}
 
 		Ok(score)

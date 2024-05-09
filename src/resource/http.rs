@@ -8,6 +8,12 @@ use xx_url::{
 
 use super::*;
 
+#[errors]
+pub enum HttpError {
+	#[error("{0}")]
+	StatusNotOk(String)
+}
+
 struct HttpStream {
 	request: HttpRequest,
 	body: Body,
@@ -15,9 +21,9 @@ struct HttpStream {
 	length: Option<u64>
 }
 
-#[async_fn]
+#[asynchronous]
 impl HttpStream {
-	fn get_range(range: &String) -> Option<(u64, u64)> {
+	fn get_range(range: &str) -> Option<(u64, u64)> {
 		let mut split = range.split_whitespace();
 
 		if !split.next()?.eq_ignore_ascii_case("bytes") {
@@ -27,10 +33,7 @@ impl HttpStream {
 		let mut range_and_length = split.next()?.split('/');
 		let start = range_and_length.next()?.split('-').next()?;
 
-		Some((
-			u64::from_str_radix(start, 10).ok()?,
-			u64::from_str_radix(range_and_length.next()?, 10).ok()?
-		))
+		Some((start.parse().ok()?, range_and_length.next()?.parse().ok()?))
 	}
 
 	async fn get_body_for(
@@ -39,19 +42,17 @@ impl HttpStream {
 		let mut position = 0;
 		let mut length = None;
 
-		request.header("Range", format!("bytes={}-", start));
+		request.header("Range", format!("bytes={}-", start).as_str());
 
 		let response = HttpRequest::run(request).await?;
 
 		if !response.status().is_success() {
-			return Err(Error::new(
-				ErrorKind::Other,
-				format!("HTTP {}", response.status())
-			));
+			return Err(HttpError::StatusNotOk(format!("HTTP {}", response.status())).into());
 		}
 
+		#[allow(clippy::never_loop)]
 		loop {
-			let Some(range) = response.headers().get("content-range") else {
+			let Some(range) = response.headers().get_str("Content-Range")? else {
 				break;
 			};
 
@@ -66,20 +67,14 @@ impl HttpStream {
 				break;
 			}
 
-			return Err(Error::new(
-				ErrorKind::InvalidData,
-				format!(
-					"Server returned content starting at {}, requested for {}",
-					pos, start
-				)
-			));
+			return Err(FormatError::InvalidSeek(pos, start).into());
 		}
 
 		Ok((response.into_body(), position, length))
 	}
 
-	async fn new(url: &str, strategy: IpStrategy) -> Result<HttpStream> {
-		let mut request = get(url)?;
+	async fn new(url: &str, strategy: IpStrategy) -> Result<Self> {
+		let mut request = get(url);
 
 		request.set_strategy(strategy);
 
@@ -89,12 +84,13 @@ impl HttpStream {
 	}
 }
 
-#[async_trait_impl]
+#[asynchronous]
 impl Read for HttpStream {
 	async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
 		match self.body.read(buf).await {
 			Ok(n) => {
-				self.position += n as u64;
+				#[allow(clippy::arithmetic_side_effects)]
+				(self.position += n as u64);
 
 				return Ok(n);
 			}
@@ -104,24 +100,25 @@ impl Read for HttpStream {
 					return Err(err);
 				}
 
-				error!(target: self, "== Read from body failed: {:?}", err)
+				error!(target: &*self, "== Read from body failed, retrying ({:?})", err);
 			}
 		}
 
 		let old_pos = self.position;
 
-		debug!(target: self, "== Retrying stream at position = {}", self.position);
+		debug!(target: &*self, "== Retrying stream at position = {}", self.position);
 
 		self.seek(SeekFrom::Start(self.position)).await?;
 
-		debug!(target: self, "== After seek, position = {}", self.position);
+		debug!(target: &*self, "== After seek, position = {}", self.position);
 
 		if self.position != old_pos {
-			return Err(Error::new(ErrorKind::Other, "HTTP retry failed"));
+			return Err(FormatError::InvalidSeek(old_pos, self.position).into());
 		}
 
 		let result = self.body.read(buf).await;
 
+		#[allow(clippy::arithmetic_side_effects)]
 		if let Ok(n) = &result {
 			self.position += *n as u64;
 		}
@@ -130,8 +127,9 @@ impl Read for HttpStream {
 	}
 }
 
-#[async_trait_impl]
+#[asynchronous]
 impl Seek for HttpStream {
+	#[allow(clippy::unwrap_used)]
 	async fn seek(&mut self, seek: SeekFrom) -> Result<u64> {
 		let pos = match seek {
 			SeekFrom::Current(pos) => self.position.checked_add_signed(pos).unwrap(),
@@ -163,12 +161,12 @@ impl Seek for HttpStream {
 	async fn stream_len(&mut self) -> Result<u64> {
 		match self.length {
 			Some(len) => Ok(len),
-			None => return Err(Error::new(ErrorKind::Other, "Unknown length"))
+			None => return Err(fmt_error!("Unknown length"))
 		}
 	}
 }
 
-impl StreamTrait for HttpStream {}
+impl StreamImpl for HttpStream {}
 
 pub struct HttpResource {
 	url: String,
@@ -176,11 +174,10 @@ pub struct HttpResource {
 }
 
 impl HttpResource {
-	pub fn new(url: &str) -> Self {
-		Self {
-			url: url.to_string(),
-			strategy: IpStrategy::Default
-		}
+	#[must_use]
+	#[allow(clippy::impl_trait_in_params)]
+	pub fn new(url: impl Into<String>) -> Self {
+		Self { url: url.into(), strategy: IpStrategy::Default }
 	}
 
 	pub fn set_strategy(&mut self, strategy: IpStrategy) -> &mut Self {
@@ -189,8 +186,8 @@ impl HttpResource {
 	}
 }
 
-#[async_trait_impl]
-impl ResourceTrait for HttpResource {
+#[asynchronous]
+impl ResourceImpl for HttpResource {
 	async fn create_stream(&self) -> Result<Stream> {
 		Ok(Box::new(HttpStream::new(&self.url, self.strategy).await?))
 	}

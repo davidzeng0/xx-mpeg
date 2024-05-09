@@ -23,6 +23,7 @@ impl AacParser {
 		let mut bits = BitReader::new(&params.config);
 		let mut audio_object_type = bits.read_u8(5)?;
 
+		#[allow(clippy::arithmetic_side_effects)]
 		if audio_object_type == AOT_ESCAPE {
 			audio_object_type = 0x20 + bits.read_u8(6)?;
 		}
@@ -44,15 +45,15 @@ impl AacParser {
 		Ok(())
 	}
 
-	pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecParserTrait>> {
+	pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
 		Self::parse_config(params)
-			.map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid aac config"))?;
+			.map_err(|_| FormatError::InvalidData("Invalid aac config".into()))?;
 
 		Ok(Box::new(Self))
 	}
 }
 
-impl CodecParserTrait for AacParser {
+impl CodecParserImpl for AacParser {
 	fn id(&self) -> CodecId {
 		CodecId::Aac
 	}

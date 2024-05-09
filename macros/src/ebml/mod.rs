@@ -1,506 +1,633 @@
-use proc_macro2::{Literal, Span, TokenStream};
+use convert_case::*;
+use pluralizer::*;
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
-use syn::{
-	parse::{self, *},
-	punctuated::Punctuated,
-	spanned::Spanned,
-	*
-};
+use syn::{parse::*, punctuated::Punctuated, spanned::Spanned, *};
+use xx_macro_support::{attribute::*, fallible::*};
 
-fn is_primitive(ty: &str) -> bool {
-	match ty {
-		"vint" | "vfloat" | "u128" | "u64" | "u32" | "u16" | "u8" | "i128" | "i64" | "i32" |
-		"i16" | "i8" | "f64" | "f32" => true,
-		_ => false
-	}
-}
-
-fn is_variable_sized(ty: &str) -> bool {
-	match ty {
-		"vint" | "vfloat" | "String" | "Vec" => true,
-		_ => false
-	}
-}
-
-fn data_type(ty: &Ident, args: &PathArguments) -> Option<(Type, String)> {
-	if !args.is_empty() {
-		return None;
-	}
-
-	let type_str = &ty.to_string() as &str;
-	let (data_type, reader_type) = match type_str {
-		"vint" => Some((quote! { u64 }, "u64")),
-		"vfloat" => Some((quote! { f64 }, "f64")),
-		"String" => Some((quote! { String}, "string")),
-		prim if is_primitive(prim) => Some((quote! { #ty }, prim)),
-		_ => None
-	}?;
-
-	Some((
-		parse_quote_spanned! { ty.span() => #data_type },
-		reader_type.to_string()
-	))
-}
-
-fn var_occur_type(ty: &Ident, args: &PathArguments) -> Option<(Type, u64, Option<u64>)> {
-	loop {
-		let (min, max) = match &ty.to_string() as &str {
-			"Option" => (0, Some(1)),
-			"Vec" => (0, None),
-			_ => break
-		};
-
-		let PathArguments::AngleBracketed(angle) = &args else {
-			break;
-		};
-		let GenericArgument::Type(ty) = angle.args.first()? else {
-			break;
-		};
-
-		return Some((ty.clone(), min, max));
-	}
-
-	None
-}
-
-struct Data {
-	name: Ident,
-	ty: Ident,
-	default: Option<Literal>,
-
-	data_type: Type,
-	reader_type: String,
-	is_primitive: bool,
-	is_variable_sized: bool
-}
-
-struct Child {
-	name: Ident,
-	ty: Type,
-
-	min_occur: u64,
-	max_occur: Option<u64>
-}
-
-enum Parse {
-	Data(Vec<Data>),
-	Master(Vec<Child>)
+#[derive(Clone)]
+struct EbmlField {
+	field: Field,
+	rename: Option<String>,
+	id: Option<LitInt>,
+	default: Option<Expr>,
+	flatten: bool
 }
 
 struct Element {
 	attrs: Vec<Attribute>,
-	struct_token: token::Struct,
+	vis: Visibility,
 	name: Ident,
-	brace_token: token::Brace,
-	id: LitInt,
-	parse: Parse,
-	post_parse: Option<ImplItemFn>
+	fields_named: bool,
+	fields: Vec<EbmlField>,
+	check: Option<ImplItemFn>
 }
 
-fn make_parse(
-	span: Span, fields: Punctuated<(Field, Option<Literal>), Token![,]>
-) -> Result<Parse> {
-	let mut data_fields = Vec::new();
-	let mut children = Vec::new();
-
-	for (field, default) in &fields {
-		loop {
-			let Type::Path(path) = &field.ty else {
-				return Err(Error::new(
-					field.span(),
-					"Only primitive and struct types allowed"
-				));
-			};
-
-			if path.path.leading_colon.is_some() || path.path.segments.len() != 1 {
-				break;
-			}
-
-			let path = path.path.segments.first().unwrap();
-			let ty = &path.ident;
-
-			if let Some((data_type, reader_type)) = data_type(ty, &path.arguments) {
-				let type_str = ty.to_string();
-
-				data_fields.push(Data {
-					name: field.ident.clone().unwrap(),
-					ty: ty.clone(),
-					default: default.clone(),
-					data_type,
-					reader_type,
-					is_primitive: is_primitive(&type_str),
-					is_variable_sized: is_variable_sized(&type_str)
-				});
-
-				break;
-			}
-
-			if default.is_some() {
-				return Err(Error::new(
-					field.span(),
-					"Only primitive types may have default values"
-				));
-			}
-
-			if let Some((ty, min, max)) = var_occur_type(ty, &path.arguments) {
-				let mut is_binary = false;
-
-				loop {
-					if min != 0 || max != None {
-						break;
-					}
-
-					let Type::Path(path) = &ty else {
-						break;
-					};
-
-					if path.path.leading_colon.is_some() || path.path.segments.len() != 1 {
-						break;
-					}
-
-					let path = path.path.segments.first().unwrap();
-					let ty = &path.ident;
-
-					let Some(_) = data_type(ty, &path.arguments) else {
-						break;
-					};
-
-					if ty != "u8" {
-						break;
-					}
-
-					is_binary = true;
-					data_fields.push(Data {
-						name: field.ident.clone().unwrap(),
-						ty: ty.clone(),
-						default: default.clone(),
-						data_type: field.ty.clone(),
-						reader_type: "bytes".to_string(),
-						is_primitive: false,
-						is_variable_sized: true
-					});
-
-					break;
-				}
-
-				if is_binary {
-					break;
-				}
-
-				children.push(Child {
-					name: field.ident.clone().unwrap(),
-					ty,
-
-					min_occur: min,
-					max_occur: max
-				});
-
-				break;
-			}
-
-			children.push(Child {
-				name: field.ident.clone().unwrap(),
-				ty: field.ty.clone(),
-
-				min_occur: 1,
-				max_occur: Some(1)
-			});
-
-			break;
-		}
-	}
-
-	if !data_fields.is_empty() && !children.is_empty() {
-		return Err(Error::new(
-			span,
-			"a master element cannot have parsable fields"
-		));
-	}
-
-	Ok(if children.is_empty() {
-		Parse::Data(data_fields)
-	} else {
-		Parse::Master(children)
-	})
+enum Define {
+	Element(Element),
+	Enum(ItemEnum)
 }
 
-impl parse::Parse for Element {
-	fn parse(input: ParseStream) -> Result<Self> {
-		let attrs = input.call(Attribute::parse_outer)?;
+fn parse_field_rest(input: &ParseBuffer<'_>, mut field: Field) -> Result<EbmlField> {
+	let mut id = None;
+	let mut default = None;
+	let mut rename = None;
+	let mut flatten = false;
 
-		let struct_token = input.parse::<Token![struct]>()?;
+	if input.parse::<Option<Token![@]>>()?.is_some() {
+		id = Some(input.parse()?);
+	}
 
-		let name = input.parse::<Ident>()?;
-		let content;
-		let brace_token = braced!(content in input);
+	if input.parse::<Option<Token![=]>>()?.is_some() {
+		default = Some(input.parse()?);
+	}
 
-		content.parse::<Token![const]>()?;
+	if remove_attr_path(&mut field.attrs, "flatten").is_some() {
+		flatten = true;
+	}
 
-		if content.parse::<Ident>()? != "ID" {
-			return Err(content.error("unexpected const"));
-		}
-
-		content.parse::<Token![=]>()?;
-
-		let id = content.parse::<LitInt>()?;
-
-		content.parse::<Token![;]>()?;
-
-		let post_parse = if input.peek(Token![async]) || input.peek(Token![fn]) {
-			let func: ImplItemFn = input.parse()?;
-
-			if func.sig.ident != "post_parse" {
-				return Err(input.error("unexpected function"));
-			}
-
-			Some(func)
-		} else {
-			None
+	if let Some(attr) = remove_attr_name_value(&mut field.attrs, "rename") {
+		let Expr::Lit(ExprLit { lit: Lit::Str(str), .. }) = &attr.value else {
+			return Err(Error::new_spanned(attr.value, "Expected a str"));
 		};
 
-		let fields = content.parse_terminated(
-			|input| {
-				let field = Field::parse_named(input)?;
+		rename = Some(str.value());
+	}
 
-				let default = if input.peek(Token![=]) {
-					input.parse::<Token![=]>()?;
+	Ok(EbmlField { field, rename, id, default, flatten })
+}
 
-					Some(input.parse()?)
-				} else {
-					None
-				};
+fn parse_named_fields(input: ParseBuffer<'_>) -> Result<Punctuated<EbmlField, Token![,]>> {
+	input.parse_terminated(
+		|input| {
+			let field = Field::parse_named(input)?;
 
-				Ok((field, default))
-			},
-			Token![,]
-		)?;
+			parse_field_rest(input, field)
+		},
+		Token![,]
+	)
+}
 
-		let parse = make_parse(content.span(), fields)?;
+fn parse_unnamed_fields(input: ParseBuffer<'_>) -> Result<Punctuated<EbmlField, Token![,]>> {
+	input.parse_terminated(
+		|input| {
+			let field = Field::parse_unnamed(input)?;
 
-		Ok(Self {
-			attrs,
-			struct_token,
-			name,
-			brace_token,
-			id,
-			parse,
-			post_parse
+			parse_field_rest(input, field)
+		},
+		Token![,]
+	)
+}
+
+impl Parse for Define {
+	fn parse(input: ParseStream<'_>) -> Result<Self> {
+		let attrs = input.call(Attribute::parse_outer)?;
+		let vis = input.parse::<Visibility>()?;
+
+		Ok(if input.peek(Token![enum]) {
+			let mut parsed = ItemEnum::parse(input)?;
+
+			parsed.attrs = attrs;
+			parsed.vis = vis;
+
+			Self::Enum(parsed)
+		} else {
+			input.parse::<Token![struct]>()?;
+
+			let name = input.parse::<Ident>()?;
+			let content;
+
+			let (named, fields) = if input.peek(token::Paren) {
+				parenthesized!(content in input);
+
+				let fields = parse_unnamed_fields(content)?;
+
+				input.parse::<Token![;]>()?;
+
+				(false, fields)
+			} else {
+				braced!(content in input);
+
+				(true, parse_named_fields(content)?)
+			};
+
+			let check = if input.peek(Token![async]) || input.peek(Token![fn]) {
+				let func: ImplItemFn = input.parse()?;
+
+				if func.sig.ident != "check" {
+					return Err(Error::new_spanned(func, "Unexpected function"));
+				}
+
+				Some(func)
+			} else {
+				None
+			};
+
+			Self::Element(Element {
+				attrs,
+				vis,
+				name,
+				fields_named: named,
+				fields: fields.into_iter().collect(),
+				check
+			})
 		})
 	}
 }
 
-impl Element {
-	fn expand(&self) -> TokenStream {
-		let mut fields: Punctuated<Field, Token![,]> = Punctuated::new();
+fn base_path(span: Option<Span>) -> TokenStream {
+	quote_spanned! { span.unwrap_or_else(Span::call_site) =>
+		::xx_mpeg::demuxer::mkv::ebml
+	}
+}
 
-		let mut parse_lines = Vec::new();
-		let mut defaults = Vec::new();
-		let mut required_post_parse = Vec::new();
+fn generate_struct(
+	element: &Element, name: &Ident, modify: impl Fn(&mut EbmlField)
+) -> TokenStream {
+	let fields: Punctuated<_, Token![,]> = element
+		.fields
+		.iter()
+		.map(|field| {
+			let mut field = field.clone();
 
-		let mut expanded = Vec::new();
+			modify(&mut field);
 
-		let mut add_field = |ident: Ident, ty: Type| {
-			fields.push(Field {
-				attrs: Vec::new(),
-				colon_token: Default::default(),
-				vis: Visibility::Public(Default::default()),
-				ident: Some(ident),
-				mutability: FieldMutability::None,
-				ty
-			});
+			field.field
+		})
+		.collect();
+
+	let (attrs, vis) = (&element.attrs, &element.vis);
+
+	let fields = if element.fields_named {
+		quote! { { #fields } }
+	} else {
+		quote! { ( #fields ); }
+	};
+
+	quote! {
+		#(#attrs)*
+		#vis struct #name #fields
+	}
+}
+
+fn partial_ident(name: &Ident) -> Ident {
+	format_ident!("Partial{}", name)
+}
+
+fn partial_path(path: &Path) -> Path {
+	let mut path = path.clone();
+	let last = path.segments.last_mut().unwrap();
+
+	last.ident = partial_ident(&last.ident);
+	path
+}
+
+fn generate_partial(element: &Element) -> Result<TokenStream> {
+	let mut finalize = Vec::new();
+
+	for EbmlField {
+		field: Field { ident, ty, .. }, default, flatten, ..
+	} in &element.fields
+	{
+		let Type::Path(TypePath { qself: None, .. }) = ty else {
+			return Err(Error::new_spanned(ty, "Must be a path"));
 		};
 
-		let (name, id) = (&self.name, &self.id);
+		if *flatten {
+			finalize.push(quote! { #ident: self.#ident.finalize()? });
 
-		match &self.parse {
-			Parse::Data(fields) => {
-				for field in fields {
-					let ty = &field.data_type;
-					let ty = quote_spanned! { field.ty.span() => #ty };
-
-					add_field(field.name.clone(), parse_quote! { #ty });
-
-					let read_func = if field.is_primitive {
-						format_ident!("read_{}_be", field.ty)
-					} else {
-						format_ident!("read_{}", field.reader_type, span = field.ty.span())
-					};
-
-					let arg = if field.is_variable_sized {
-						quote! { element.size as usize }
-					} else {
-						quote! {}
-					};
-
-					let name = &field.name;
-
-					parse_lines.push(quote! {
-						this.#name = parser.reader().#read_func(#arg).await?;
-					});
-
-					if let Some(default) = &field.default {
-						let ty = &field.data_type;
-
-						if field.is_primitive {
-							defaults.push(quote! {
-								#name: #default
-							});
-						} else {
-							defaults.push(quote! {
-								#name: #ty::from(#default)
-							});
-						}
-					} else {
-						defaults.push(quote! {
-							#name: std::default::Default::default()
-						});
-					}
-				}
-			}
-
-			Parse::Master(fields) => {
-				let mut ids = Vec::new();
-				let mut element_handlers = Vec::new();
-
-				for field in fields {
-					let ty = &field.ty;
-					let name = &field.name;
-
-					let parsed = quote! { <#ty as ParseExt>::parse(parser, element).await? };
-
-					let (wrap, parsed) = match (field.min_occur, field.max_occur) {
-						(0, Some(1)) => (quote! { Option<#ty> }, quote! { = Some(#parsed) }),
-
-						(0, None) => (quote! { Vec<#ty> }, quote! { .push(#parsed) }),
-
-						(1, Some(1)) => {
-							required_post_parse.push(quote! {
-								self.#name.post_parse()?;
-							});
-
-							(quote! { #ty }, quote! { = #parsed })
-						}
-
-						_ => unreachable!()
-					};
-
-					add_field(field.name.clone(), parse_quote! { #wrap });
-
-					element_handlers.push(quote! {
-						<#ty as Parse>::ID => {
-							parser.pre_parse::<#ty>(element, PhantomData)?;
-
-							self.#name #parsed;
-						}
-					});
-
-					ids.push(quote! { <#ty as Parse>::ID });
-
-					defaults.push(quote! {
-						#name: std::default::Default::default()
-					});
-				}
-
-				parse_lines.push(quote! {
-					let master = MasterElement {
-						element: element.clone(),
-						children: Self::CHILDREN
-					};
-
-					parser.read_children(&master, |parser, element| {
-						this.handle_child(parser, element).await
-					}).await?;
-				});
-
-				expanded.push(quote! {
-					#[async_trait_impl]
-					impl MasterParse for #name {
-						const CHILDREN: &'static [ElementId] = &[#(#ids),*];
-
-						async fn handle_child<P: Parser>(&mut self, parser: &mut P, element: &Element) -> Result<()> {
-							match element.id {
-								#(#element_handlers)*
-								_ => unreachable!()
-							}
-
-							Ok(())
-						}
-					}
-				});
-			}
+			continue;
 		}
 
-		let post_parse = if let Some(post_parse) = &self.post_parse {
-			post_parse.clone()
-		} else {
-			parse_quote! {
-				fn post_parse(&mut self) -> Result<()> {
-					#(#required_post_parse)*
+		let mut ident = ident.clone().unwrap();
 
-					Ok(())
+		ident.set_span(ty.span());
+
+		let default = if let Some(default) = default {
+			let default = quote_spanned! { default.span() =>
+				|| #default
+			};
+
+			quote_spanned! { default.span() =>
+				get_or_default(self.#ident, #default)
+			}
+		} else {
+			quote_spanned! { ty.span() =>
+				get(self.#ident)?
+			}
+		};
+
+		let base = base_path(Some(ty.span()));
+
+		finalize.push(quote! { #ident: #base::internal::FieldInit::#default });
+	}
+
+	let ident = &element.name;
+	let partial = partial_ident(ident);
+
+	let item = generate_struct(element, &partial, |field| {
+		let ty = &field.field.ty;
+
+		if field.flatten {
+			let Type::Path(TypePath { path, .. }) = ty else {
+				unreachable!();
+			};
+
+			let partial = partial_path(path);
+
+			field.field.ty = parse_quote! { #partial };
+		} else {
+			field.field.ty = parse_quote! { ::std::option::Option<#ty> };
+		}
+	});
+
+	Ok(quote! {
+		#[derive(Default)]
+		#item
+
+		impl #partial {
+			pub fn finalize(self) -> ::xx_core::error::Result<#ident> {
+				Ok(#ident {
+					#(#finalize),*
+				})
+			}
+		}
+	})
+}
+
+fn generate_master(element: &Element) -> Result<(TokenStream, TokenStream)> {
+	let base = base_path(None);
+	let name = &element.name;
+	let partial = partial_ident(name);
+
+	let mut ids = Vec::new();
+	let mut id_consts = Vec::new();
+	let mut element_handlers = Vec::new();
+	let mut flattened = Vec::new();
+	let mut flattened_ids = Vec::new();
+
+	for EbmlField {
+		field: Field { ident, ty, .. },
+		rename,
+		id,
+		flatten,
+		..
+	} in &element.fields
+	{
+		let Some(mut ident) = ident.clone() else {
+			let msg = "Master elements require named fields";
+
+			return Err(Error::new_spanned(ty, msg));
+		};
+
+		ident.set_span(ty.span());
+
+		let base = base_path(Some(ty.span()));
+
+		if *flatten {
+			flattened.push(quote_spanned! { ty.span() =>
+				#base::parse::MasterElementExt::handle_child(&mut self.#ident, reader, header).await?
+			});
+
+			let Type::Path(TypePath { qself: None, path }) = ty else {
+				return Err(Error::new_spanned(ty, "Must be a path"));
+			};
+
+			let partial = partial_path(path);
+
+			flattened_ids.push(quote! {
+				<#partial as #base::parse::MasterElement>::CHILDREN
+			});
+
+			continue;
+		}
+
+		let field_name = rename.clone().unwrap_or_else(|| ident.to_string());
+
+		let child_name = field_name.to_case(Case::Pascal);
+		let child_name_singular = pluralize(field_name.as_ref(), 1, false).to_case(Case::Pascal);
+
+		let id = quote! { #id };
+		let id_const = format_ident!(
+			"{}_ID",
+			field_name.to_case(Case::ScreamingSnake),
+			span = id.span()
+		);
+
+		let child_name = if child_name == child_name_singular {
+			quote! { #child_name }
+		} else {
+			quote_spanned! { ty.span() =>
+				if <::std::option::Option<#ty> as #base::internal::FieldMeta>::MULTIPLE {
+					#child_name_singular
+				} else {
+					#child_name
 				}
 			}
 		};
 
-		expanded.push(quote! {
-			#[async_trait_impl]
-			impl Parse for #name {
-				const ID: ElementId = make_id(#id);
-				const NAME: &'static str = stringify!(#name);
+		let parse = quote_spanned! { ty.span() =>
+			#base::internal::FieldInit::insert(
+				&mut self.#ident,
+				<
+					<::std::option::Option<#ty> as #base::internal::FieldMeta>
+						::Element as #base::parse::ElementExt
+				>::parse(reader, header).await?
+			)?;
+		};
 
-				async fn parse<P: Parser>(parser: &mut P, element: &Element) -> Result<Self> {
-					let mut this = Self::default();
+		let mut name = name.clone();
 
-					#(#parse_lines);*
+		name.set_span(id.span());
 
-					this.post_parse()?;
+		let id_path = quote_spanned! { id.span() =>
+			#name::#id_const
+		};
+
+		element_handlers.push(quote! {
+			#id_path => {
+				#base::parse::EbmlReaderExt::trace_element(
+					reader,
+					#child_name,
+					header
+				);
+
+				#parse
+			}
+		});
+
+		ids.push(quote! { #base::parse::make_id(#id) });
+		id_consts.push(id_const);
+	}
+
+	Ok((
+		quote! {
+			<#partial as #base::parse::ElementExt>::parse(reader, header)
+				.await?.finalize()?
+		},
+		quote! {
+			impl #name {
+				#(pub const #id_consts: #base::EbmlId = #ids;)*
+			}
+
+			#[::xx_pulse::asynchronous]
+			impl #base::parse::Element for #partial {
+				async fn parse<R>(reader: &mut R, header: &#base::parse::ElemHdr) -> ::xx_core::error::Result<Self>
+				where
+					R: #base::parse::EbmlReader
+				{
+					use ::std::default::Default;
+					use #base::parse::{MasterElemHdr, MasterElement, MasterElementExt, ElemHdr, EbmlReaderExt};
+
+					let master = MasterElemHdr {
+						element: *header,
+						children: <Self as MasterElement>::CHILDREN
+					};
+
+					let mut this = Default::default();
+
+					EbmlReaderExt::read_children(
+						reader,
+						&master,
+						|reader: &mut R, header: &ElemHdr| async move {
+							MasterElementExt::handle_child(&mut this, reader, header).await
+						}
+					).await?;
 
 					Ok(this)
 				}
-
-				#post_parse
 			}
-		});
 
-		let item_struct = ItemStruct {
-			attrs: self.attrs.clone(),
-			vis: Visibility::Public(Default::default()),
-			struct_token: self.struct_token.clone(),
-			ident: self.name.clone(),
-			generics: Default::default(),
-			fields: syn::Fields::Named(FieldsNamed {
-				brace_token: self.brace_token.clone(),
-				named: fields.clone()
-			}),
-			semi_token: None
-		};
+			#[::xx_pulse::asynchronous]
+			impl #base::parse::MasterElement for #partial {
+				const CHILDREN: &'static [#base::EbmlId] =
+					::xx_mpeg::constcat::concat_slices!(
+						[#base::EbmlId]:
+						&[#(#name::#id_consts),*],
+						#(#flattened_ids)*
+					);
 
-		expanded.push(quote! {
-			#[derive(Debug)]
-			#item_struct
-		});
+				async fn handle_child<R>(
+					&mut self,
+					reader: &mut R,
+					header: &#base::parse::ElemHdr
+				) -> ::xx_core::error::Result<bool>
+				where
+					R: #base::parse::EbmlReader
+				{
+					match header.id {
+						#(#element_handlers)*
+						_ => {
+							let mut matched = false;
 
-		expanded.push(quote! {
-			impl std::default::Default for #name {
-				fn default() -> Self {
-					Self {
-						#(#defaults),*
+							#(if !matched {
+								matched = #flattened;
+							})*;
+
+							return Ok(matched)
+						}
 					}
+
+					Ok(true)
 				}
 			}
-		});
+		}
+	))
+}
 
-		quote! {
-			#(#expanded)*
+fn generate_simple(element: &Element) -> TokenStream {
+	let base = base_path(None);
+	let mut fields = Vec::new();
+	let mut parses = Vec::new();
+
+	for (index, EbmlField { field: Field { ident, ty, .. }, .. }) in
+		element.fields.iter().enumerate()
+	{
+		let name = if let Some(ident) = ident {
+			let name = format_ident!("{}", ident, span = Span::mixed_site());
+
+			fields.push(quote! { #ident: #name });
+			name
+		} else {
+			let name = format_ident!("_{}", index);
+			let member = Member::Unnamed(index.into());
+
+			fields.push(quote! { #member: #name });
+			name
+		};
+
+		parses.push(quote_spanned! { ty.span() =>
+			let #name = {
+				if header.size != #base::UNKNOWN_SIZE {
+					header.size = header.size.checked_sub(reader.position() - header.offset)
+						.ok_or(::xx_mpeg::FormatError::ReadOverflow)?;
+				}
+
+				header.offset = reader.position();
+
+				<#ty as #base::parse::ElementExt>::parse(reader, &header).await?
+			};
+		});
+	}
+
+	quote! {
+		let mut header = *header;
+
+		#(#parses)*;
+
+		Self { #(#fields),* }
+	}
+}
+
+fn generate_default(element: &Element) -> TokenStream {
+	let mut fields = Vec::new();
+
+	for EbmlField { field: Field { ident, .. }, default, .. } in &element.fields {
+		let default = default
+			.clone()
+			.unwrap_or_else(|| parse_quote! { ::std::default::Default::default() });
+
+		fields.push(quote! { #ident: #default });
+	}
+
+	let name = &element.name;
+
+	quote! {
+		impl ::std::default::Default for #name {
+			fn default() -> Self {
+				Self {
+					#(#fields),*
+				}
+			}
 		}
 	}
 }
 
-pub fn ebml_element(item: TokenStream) -> TokenStream {
-	let element = match parse2::<Element>(item) {
-		Ok(element) => element.expand(),
-		Err(err) => return err.to_compile_error()
+impl Element {
+	fn expand(&self) -> Result<TokenStream> {
+		let base = base_path(None);
+		let all_id = self.fields.iter().all(|f| f.id.is_some() || f.flatten);
+		let none_id = self.fields.iter().all(|f| f.id.is_none() && !f.flatten);
+
+		if !all_id && !none_id {
+			return Err(Error::new(
+				Span::call_site(),
+				"Cannot mix master element and simple element fields"
+			));
+		}
+
+		let mut items = Vec::new();
+		let (name, check) = (&self.name, &self.check);
+
+		items.push(generate_struct(self, &self.name, |field| {
+			let ty = &field.field.ty;
+
+			field.field.ty = parse_quote_spanned! { ty.span() =>
+				<::std::option::Option<#ty> as #base::internal::FieldMeta>::Output
+			};
+		}));
+
+		let parse = if all_id {
+			let (parses, elem_handlers) = generate_master(self)?;
+
+			items.push(generate_partial(self)?);
+			items.push(elem_handlers);
+			parses
+		} else {
+			generate_simple(self)
+		};
+
+		if none_id && self.fields.iter().any(|field| field.default.is_some()) {
+			items.push(generate_default(self));
+		}
+
+		items.push(quote! {
+			#[::xx_pulse::asynchronous]
+			impl #base::parse::Element for #name {
+				async fn parse<R>(reader: &mut R, header: &#base::parse::ElemHdr) -> Result<Self>
+				where
+					R: #base::parse::EbmlReader
+				{
+					mod __xx_internal_post_parse_verify_support {
+						pub trait Check {
+							fn check(&mut self) -> ::xx_core::error::Result<()> {
+								Ok(())
+							}
+						}
+					}
+
+					impl __xx_internal_post_parse_verify_support::Check for #name {
+						#check
+					}
+
+					let mut parsed = { #parse };
+
+					__xx_internal_post_parse_verify_support::Check::check(&mut parsed)?;
+
+					Ok(parsed)
+				}
+			}
+		});
+
+		Ok(quote! { #(#items)* })
+	}
+}
+
+fn transform_enum(mut item: ItemEnum) -> Result<TokenStream> {
+	let base = base_path(None);
+	let ident = &item.ident;
+
+	item.attrs.push(parse_quote! {
+		#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, ::num_derive::FromPrimitive)]
+	});
+
+	let parse = if remove_attr_path(&mut item.attrs, "bitflags").is_some() {
+		item.attrs.push(parse_quote! { #[bitflags] });
+
+		None
+	} else {
+		let repr = remove_attr_list(&mut item.attrs, "repr")
+			.ok_or_else(|| Error::new(Span::call_site(), "Expected a repr"))?;
+
+		let MacroDelimiter::Paren(_) = repr.delimiter else {
+			return Err(Error::new_spanned(repr, "Expected parenthesis"));
+		};
+
+		let repr = repr.tokens;
+
+		Some(quote_spanned! { repr.span() =>
+			#[::xx_pulse::asynchronous]
+			impl #base::parse::Element for #ident {
+				async fn parse<R>(reader: &mut R, header: &#base::parse::ElemHdr) -> Result<Self>
+				where
+					R: #base::parse::EbmlReader
+				{
+					let repr = <#repr as #base::parse::ElementExt>::parse(reader, header).await?;
+
+					{
+						use ::std::convert::Into;
+						use #base::{internal::EnumRepr, parse::EbmlError};
+
+						EnumRepr::convert(repr).ok_or_else(
+							|| Into::into(EbmlError::InvalidVariant)
+						)
+					}
+				}
+			}
+		})
 	};
 
-	element
+	Ok(quote! {
+		#item
+		#parse
+	})
+}
+
+pub fn ebml_define(item: TokenStream) -> TokenStream {
+	try_expand(|| {
+		parse2::<Define>(item).and_then(|def| match def {
+			Define::Element(element) => element.expand(),
+			Define::Enum(item) => transform_enum(item)
+		})
+	})
 }

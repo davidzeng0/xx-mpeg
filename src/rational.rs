@@ -4,20 +4,25 @@ use num_traits::{Num, NumCast, PrimInt};
 
 #[derive(Copy, Clone, Debug)]
 pub struct Rational {
-	num: u32,
-	den: u32
+	pub num: u32,
+	pub den: u32
 }
 
-pub trait Scalar: Num + NumCast {}
+mod private {
+	use super::*;
 
-impl Scalar for u64 {}
+	pub trait Scalar: Num + NumCast {}
+}
 
-impl Scalar for i64 {}
+use private::*;
 
-impl Scalar for f64 {}
+impl<T: Num + NumCast> Scalar for T {}
 
 impl Rational {
-	pub fn gcd<T: PrimInt>(mut a: T, mut b: T) -> T {
+	pub fn gcd<T>(mut a: T, mut b: T) -> T
+	where
+		T: PrimInt
+	{
 		if a.is_zero() {
 			return b;
 		}
@@ -26,6 +31,7 @@ impl Rational {
 			return a;
 		}
 
+		#[allow(clippy::needless_late_init)]
 		let trailing_zeroes = {
 			let tz_a;
 			let tz_b;
@@ -44,44 +50,54 @@ impl Rational {
 				std::mem::swap(&mut a, &mut b);
 			}
 
-			b = b - a;
+			#[allow(clippy::arithmetic_side_effects)]
+			(b = b - a);
 			b = b.unsigned_shr(b.trailing_zeros());
 		}
 
 		a.unsigned_shl(trailing_zeroes)
 	}
 
-	pub fn new(num: u32, den: u32) -> Self {
+	#[must_use]
+	pub const fn new(num: u32, den: u32) -> Self {
 		Self { num, den }
 	}
 
-	pub fn seconds() -> Self {
+	#[must_use]
+	pub const fn seconds() -> Self {
 		Self { num: 1, den: 1 }
 	}
 
-	pub fn millis() -> Self {
+	#[must_use]
+	pub const fn millis() -> Self {
 		Self { num: 1, den: 1_000 }
 	}
 
-	pub fn micros() -> Self {
+	#[must_use]
+	pub const fn micros() -> Self {
 		Self { num: 1, den: 1_000_000 }
 	}
 
-	pub fn nanos() -> Self {
+	#[must_use]
+	pub const fn nanos() -> Self {
 		Self { num: 1, den: 1_000_000_000 }
 	}
 
-	pub fn inverse(den: u32) -> Self {
+	#[must_use]
+	pub const fn inverse(den: u32) -> Self {
 		Self { num: 1, den }
 	}
 
-	pub fn invert(&self) -> Self {
+	#[must_use]
+	pub const fn invert(self) -> Self {
 		Self { num: self.den, den: self.num }
 	}
 
-	pub fn reduce(&mut self) -> &mut Self {
+	#[must_use]
+	pub fn reduce(mut self) -> Self {
 		let gcd = Self::gcd(self.num, self.den);
 
+		#[allow(clippy::arithmetic_side_effects)]
 		if gcd != 0 {
 			self.num /= gcd;
 			self.den /= gcd;
@@ -90,12 +106,12 @@ impl Rational {
 		self
 	}
 
-	pub fn rescale<T: Scalar>(&self, value: T, base: Rational) -> T {
+	#[allow(clippy::arithmetic_side_effects)]
+	pub fn rescale<T>(self, value: T, base: Self) -> T
+	where
+		T: Scalar
+	{
 		base * (self.invert() * value)
-	}
-
-	pub fn parts(&self) -> (u32, u32) {
-		(self.num, self.den)
 	}
 }
 
@@ -108,53 +124,60 @@ impl Default for Rational {
 impl<T: Scalar> Mul<T> for Rational {
 	type Output = T;
 
+	#[allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
 	fn mul(self, rhs: T) -> T {
 		T::from(self.num).unwrap() * rhs / T::from(self.den).unwrap()
 	}
 }
 
-fn maybe_reduce(num: &mut u64, den: &mut u64) {
-	if *num <= u32::MAX as u64 && *den <= u32::MAX as u64 {
-		return;
+fn maybe_reduce(mut num: u64, mut den: u64) -> (u32, u32) {
+	if let (Ok(num), Ok(den)) = (num.try_into(), den.try_into()) {
+		return (num, den);
 	}
 
-	let gcd = Rational::gcd(*num, *den);
+	let gcd = Rational::gcd(num, den);
 
+	#[allow(clippy::arithmetic_side_effects)]
 	if gcd != 0 {
-		*num /= gcd;
-		*den /= gcd;
+		num /= gcd;
+		den /= gcd;
 	}
 
-	if *num > u32::MAX as u64 || *den > u32::MAX as u64 {
+	#[allow(clippy::panic)]
+	let (Ok(num), Ok(den)) = (num.try_into(), den.try_into()) else {
 		panic!(
 			"Failed to reduce rational to within u32 bounds: num = {}, den = {}",
 			num, den
 		);
-	}
+	};
+
+	(num, den)
 }
 
 impl Mul for Rational {
-	type Output = Rational;
+	type Output = Self;
 
+	#[allow(clippy::arithmetic_side_effects)]
 	fn mul(self, rhs: Self) -> Self {
-		let mut num = self.num as u64 * rhs.num as u64;
-		let mut den = self.den as u64 * rhs.den as u64;
+		let num = self.num as u64 * rhs.num as u64;
+		let den = self.den as u64 * rhs.den as u64;
 
-		maybe_reduce(&mut num, &mut den);
+		let (num, den) = maybe_reduce(num, den);
 
-		Self { num: num as u32, den: den as u32 }
+		Self { num, den }
 	}
 }
 
 impl Div for Rational {
-	type Output = Rational;
+	type Output = Self;
 
+	#[allow(clippy::arithmetic_side_effects)]
 	fn div(self, rhs: Self) -> Self {
-		let mut num = self.num as u64 * rhs.den as u64;
-		let mut den = self.den as u64 * rhs.num as u64;
+		let num = self.num as u64 * rhs.den as u64;
+		let den = self.den as u64 * rhs.num as u64;
 
-		maybe_reduce(&mut num, &mut den);
+		let (num, den) = maybe_reduce(num, den);
 
-		Self { num: num as u32, den: den as u32 }
+		Self { num, den }
 	}
 }

@@ -1,84 +1,20 @@
-use std::ops::{Deref, DerefMut};
+#![allow(clippy::module_name_repetitions)]
 
-use enumflags2::*;
-use ffmpeg_sys_next::*;
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
-use xx_core::error::*;
+use xx_core::paste::paste;
 
 use super::{codecs::*, *};
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
-#[repr(i32)]
-pub enum SampleFormat {
-	#[default]
-	None = AVSampleFormat::AV_SAMPLE_FMT_NONE as i32,
+pub type MediaType = av::MediaType;
+pub type Discard = av::Discard;
 
-	/* packed types */
-	U8   = AVSampleFormat::AV_SAMPLE_FMT_U8 as i32,
-	I16  = AVSampleFormat::AV_SAMPLE_FMT_S16 as i32,
-	I32  = AVSampleFormat::AV_SAMPLE_FMT_S32 as i32,
-	F32  = AVSampleFormat::AV_SAMPLE_FMT_FLT as i32,
-	F64  = AVSampleFormat::AV_SAMPLE_FMT_DBL as i32,
+pub type PacketFlag = av::PacketFlag;
+pub type FrameFlag = av::FrameFlag;
 
-	/* planar types */
-	U8P  = AVSampleFormat::AV_SAMPLE_FMT_U8P as i32,
-	I16P = AVSampleFormat::AV_SAMPLE_FMT_S16P as i32,
-	I32P = AVSampleFormat::AV_SAMPLE_FMT_S32P as i32,
-	F32P = AVSampleFormat::AV_SAMPLE_FMT_FLTP as i32,
-	F64P = AVSampleFormat::AV_SAMPLE_FMT_DBLP as i32,
+pub type SampleFormat = av::SampleFormat;
+pub type Channel = av::Channel;
 
-	I64  = AVSampleFormat::AV_SAMPLE_FMT_S64 as i32,
-	I64P = AVSampleFormat::AV_SAMPLE_FMT_S64P as i32
-}
-
-impl SampleFormat {
-	pub fn from(format: i32) -> Self {
-		Self::from_i32(format).unwrap_or(Self::None)
-	}
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
-#[repr(u64)]
-pub enum Channel {
-	Unknown             = 0,
-	FrontLeft           = AV_CH_FRONT_LEFT,
-	FrontRight          = AV_CH_FRONT_RIGHT,
-	FrontCenter         = AV_CH_FRONT_CENTER,
-	LowFrequency        = AV_CH_LOW_FREQUENCY,
-	BackLeft            = AV_CH_BACK_LEFT,
-	BackRight           = AV_CH_BACK_RIGHT,
-	FrontLeftOfCenter   = AV_CH_FRONT_LEFT_OF_CENTER,
-	FrontRightOfCenter  = AV_CH_FRONT_RIGHT_OF_CENTER,
-	BackCenter          = AV_CH_BACK_CENTER,
-	SideLeft            = AV_CH_SIDE_LEFT,
-	SideRight           = AV_CH_SIDE_RIGHT,
-	TopCenter           = AV_CH_TOP_CENTER,
-	TopFrontLeft        = AV_CH_TOP_FRONT_LEFT,
-	TopFrontCenter      = AV_CH_TOP_FRONT_CENTER,
-	TopFrontRight       = AV_CH_TOP_FRONT_RIGHT,
-	TopBackLeft         = AV_CH_TOP_BACK_LEFT,
-	TopBackCenter       = AV_CH_TOP_BACK_CENTER,
-	TopBackRight        = AV_CH_TOP_BACK_RIGHT,
-	StereoLeft          = AV_CH_STEREO_LEFT,
-	StereoRight         = AV_CH_STEREO_RIGHT,
-	WideLeft            = AV_CH_WIDE_LEFT,
-	WideRight           = AV_CH_WIDE_RIGHT,
-	SurroundDirectLeft  = AV_CH_SURROUND_DIRECT_LEFT,
-	SurroundDirectRight = AV_CH_SURROUND_DIRECT_RIGHT,
-	LowFrequency2       = AV_CH_LOW_FREQUENCY_2,
-	TopSideLeft         = AV_CH_TOP_SIDE_LEFT,
-	TopSideRight        = AV_CH_TOP_SIDE_RIGHT,
-	BottomFrontCenter   = AV_CH_BOTTOM_FRONT_CENTER,
-	BottomFrontLeft     = AV_CH_BOTTOM_FRONT_LEFT,
-	BottomFrontRight    = AV_CH_BOTTOM_FRONT_RIGHT
-}
-
-impl Channel {
-	pub fn from(channel: u64) -> Self {
-		Self::from_u64(channel).unwrap_or(Self::Unknown)
-	}
-}
+pub type PictureType = av::PictureType;
+pub type PixelFormat = av::PixelFormat;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CodecParse {
@@ -89,6 +25,7 @@ pub enum CodecParse {
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum CodecId {
 	#[default]
 	Unknown,
@@ -105,31 +42,13 @@ pub enum Mode {
 	Encode
 }
 
-#[repr(u32)]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[bitflags]
-pub enum PacketFlag {
-	Keyframe   = AV_PKT_FLAG_KEY as u32,
-	Corrupt    = AV_PKT_FLAG_CORRUPT as u32,
-	Discard    = AV_PKT_FLAG_DISCARD as u32,
-	Trusted    = AV_PKT_FLAG_TRUSTED as u32,
-	Disposable = AV_PKT_FLAG_DISPOSABLE as u32
-}
-
-#[repr(u32)]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[bitflags]
-pub enum FrameFlag {
-	Corrupt = AV_FRAME_FLAG_CORRUPT as u32,
-	Discard = AV_FRAME_FLAG_DISCARD as u32
-}
-
 #[derive(Default)]
 pub struct CodecParams {
 	pub id: CodecId,
+	pub ty: MediaType,
+
 	pub config: Vec<u8>,
 
-	pub ty: MediaType,
 	pub time_base: Rational,
 	pub packet_time_base: Rational,
 	pub bit_rate: u32,
@@ -142,10 +61,17 @@ pub struct CodecParams {
 	pub channels: u16,
 	pub channel_layout: u64,
 	pub frame_size: u32,
-	pub sample_format: SampleFormat
+	pub sample_format: SampleFormat,
+
+	pub width: u32,
+	pub height: u32,
+	pub sample_aspect_ratio: Rational,
+	pub framerate: Rational,
+	pub pixel_format: PixelFormat
 }
 
 impl CodecParams {
+	#[allow(clippy::cast_possible_truncation)]
 	pub fn change_time_base(&mut self, time_base: Rational) {
 		self.delay = time_base.rescale(self.delay as u64, self.time_base) as u32;
 		self.seek_preroll = time_base.rescale(self.seek_preroll as u64, self.time_base) as u32;
@@ -153,43 +79,38 @@ impl CodecParams {
 	}
 }
 
-pub trait CodecTrait {
+pub trait CodecImpl {
 	fn id(&self) -> CodecId;
-	fn packet_padding(&self) -> usize;
 
 	fn send_packet(&mut self, packet: &Packet) -> Result<()>;
 	fn send_frame(&mut self, frame: &Frame) -> Result<()>;
 
-	fn receive_packet(&mut self) -> Result<Option<Packet>>;
-	fn receive_frame(&mut self) -> Result<Option<Frame>>;
+	fn receive_packet(&mut self, packet: &mut Packet) -> Result<bool>;
+	fn receive_frame(&mut self, frame: &mut Frame) -> Result<bool>;
 
 	fn drain(&mut self) -> Result<()>;
 	fn flush(&mut self) -> Result<()>;
 }
 
-pub struct Codec {
-	inner: Box<dyn CodecTrait>
-}
-
-impl Deref for Codec {
-	type Target = Box<dyn CodecTrait>;
-
-	fn deref(&self) -> &Self::Target {
-		&self.inner
-	}
-}
-
-impl DerefMut for Codec {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		&mut self.inner
-	}
-}
+pub struct Codec(Box<dyn CodecImpl>);
 
 impl Codec {
+	wrapper_functions! {
+		inner = self.0;
+
+		pub fn id(&self) -> CodecId;
+
+		pub fn send_packet(&mut self, packet: &Packet) -> Result<()>;
+		pub fn send_frame(&mut self, frame: &Frame) -> Result<()>;
+
+		pub fn drain(&mut self) -> Result<()>;
+		pub fn flush(&mut self) -> Result<()>;
+	}
+
 	pub fn new(params: &mut CodecParams, mode: Mode) -> Result<Self> {
 		macro_rules! pick_coder {
-			($name: ident) => {
-				paste::paste! {
+			($name:ident) => {
+				paste! {
 					match mode {
 						Mode::Decode => {
 							[<$name Decoder>]::new(params)?
@@ -209,24 +130,47 @@ impl Codec {
 			CodecId::Flac => pick_coder!(Flac),
 			CodecId::Vorbis => pick_coder!(Vorbis),
 			CodecId::Mp3 => pick_coder!(Mp3),
-			_ => return Err(Error::new(ErrorKind::Unsupported, "Codec unsupported"))
+			_ => return Err(FormatError::CodecNotFound.into())
 		};
 
-		Ok(Self { inner: codec })
+		Ok(Self(codec))
+	}
+
+	pub fn receive_packet(&mut self) -> Result<Option<Packet>> {
+		let mut packet = Packet::new();
+
+		Ok(match !self.0.receive_packet(&mut packet)? {
+			true => Some(packet),
+			false => None
+		})
+	}
+
+	pub fn receive_frame(&mut self) -> Result<Option<Frame>> {
+		let mut frame = Frame::new();
+
+		Ok(match !self.0.receive_frame(&mut frame)? {
+			true => Some(frame),
+			false => None
+		})
 	}
 }
 
-pub trait CodecParserTrait {
+pub trait CodecParserImpl {
 	fn id(&self) -> CodecId;
 
 	fn parse(&self, packet: &mut Packet) -> Result<()>;
 }
 
-pub struct CodecParser {
-	inner: Box<dyn CodecParserTrait>
-}
+pub struct CodecParser(Box<dyn CodecParserImpl>);
 
 impl CodecParser {
+	wrapper_functions! {
+		inner = self.0;
+
+		pub fn id(&self) -> CodecId;
+		pub fn parse(&self, packet: &mut Packet) -> Result<()>;
+	}
+
 	pub fn new(params: &mut CodecParams) -> Result<Self> {
 		let codec = match params.id {
 			CodecId::Aac => AacParser::new(params)?,
@@ -234,23 +178,9 @@ impl CodecParser {
 			CodecId::Flac => FlacParser::new(params)?,
 			CodecId::Vorbis => VorbisParser::new(params)?,
 			CodecId::Mp3 => Mp3Parser::new(params)?,
-			_ => return Err(Error::new(ErrorKind::Unsupported, "Codec unsupported"))
+			_ => return Err(FormatError::CodecNotFound.into())
 		};
 
-		Ok(Self { inner: codec })
-	}
-}
-
-impl Deref for CodecParser {
-	type Target = Box<dyn CodecParserTrait>;
-
-	fn deref(&self) -> &Self::Target {
-		&self.inner
-	}
-}
-
-impl DerefMut for CodecParser {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		&mut self.inner
+		Ok(Self(codec))
 	}
 }

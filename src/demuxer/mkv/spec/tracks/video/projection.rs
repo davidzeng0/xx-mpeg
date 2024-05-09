@@ -1,49 +1,23 @@
 use super::*;
 
-ebml_element! {
-	struct Projection {
-		const ID = 0x7670;
-
-		ty: Type
+ebml_define! {
+	#[repr(Unsigned)]
+	pub enum Type {
+		Rectangular     = 0,
+		Equirectangular = 1,
+		Cubemap         = 2,
+		Mesh            = 3
 	}
 }
 
-ebml_element! {
-	struct Type {
-		const ID = 0x7671;
-
-		value: vint
-	}
-}
-
-ebml_element! {
-	struct Private {
-		const ID = 0x7672;
-
-		value: Vec<u8>
-	}
-}
-
-ebml_element! {
-	struct PoseYaw {
-		const ID = 0x7673;
-
-		value: vfloat
-	}
-}
-
-ebml_element! {
-	struct PosePitch {
-		const ID = 0x7674;
-
-		value: vfloat
-	}
-}
-
-ebml_element! {
-	struct PoseRoll {
-		const ID = 0x7675;
-
-		value: vfloat
+ebml_define! {
+	#[allow(dead_code)]
+	pub struct Projection {
+		#[rename = "type"]
+		pub ty: Type @ 0x7671 = Type::Rectangular,
+		pub private: Option<Bytes> @ 0x7672,
+		pub pose_yaw: Float @ 0x7673 = 0.0,
+		pub pose_pitch: Float @ 0x7674 = 0.0,
+		pub pose_roll: Float @ 0x7675 = 0.0
 	}
 }

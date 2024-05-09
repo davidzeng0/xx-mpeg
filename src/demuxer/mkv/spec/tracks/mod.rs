@@ -1,449 +1,93 @@
 use super::*;
 
-mod translate;
-use num_derive::FromPrimitive;
-pub use translate::*;
-mod video;
-pub use video::*;
-mod audio;
-pub use audio::*;
-mod content_encoding;
-pub use content_encoding::*;
+pub mod audio;
+pub mod content_encoding;
+pub mod translate;
+pub mod video;
 
-#[derive(FromPrimitive)]
-pub enum TrackType {
-	Video    = 0x01,
-	Audio    = 0x02,
-	Complex  = 0x03,
-	Logo     = 0x10,
-	Subtitle = 0x11,
-	Button   = 0x12,
-	Control  = 0x20,
-	Metadata = 0x21
-}
+use audio::*;
+use content_encoding::*;
+use translate::*;
+use video::*;
 
-ebml_element! {
-	struct Tracks {
-		const ID = 0x1654ae6b;
-
-		tracks: Vec<Track>
+ebml_define! {
+	pub struct Tracks {
+		pub tracks: Vec<Track> @ 0xae
 	}
 }
 
-ebml_element! {
-	struct Track {
-		const ID = 0xae;
-
-		number: Number,
-		uid: UID,
-		ty: Type,
-		enabled: Enabled,
-		default: Default,
-		forced: Forced,
-		hearing_impaired: Option<HearingImpaired>,
-		visual_impaired: Option<VisualImpaired>,
-		text_descriptions: Option<TextDescriptions>,
-		original: Option<Original>,
-		commentary: Option<Commentary>,
-		lacing: Lacing,
-		min_cache: MinCache,
-		max_cache: Option<MaxCache>,
-		default_duration: Option<DefaultDuration>,
-		default_decoded_field_duration: Option<DefaultDecodedFieldDuration>,
-		track_timestamp_scale: TimestampScale,
-		track_offset: Option<Offset>,
-		name: Option<Name>,
-		language: Language,
-		codec_id: CodecId,
-		codec_private: Option<CodecPrivate>,
-		codec_name: Option<CodecName>,
-		attachment_link: Option<AttachmentLink>,
-		codec_settings: Option<CodecSettings>,
-		codec_info_url: Vec<CodecInfoUrl>,
-		codec_download_url: Vec<CodecDownloadUrl>,
-		codec_decode_all: CodecDecodeAll,
-		overlay: Vec<Overlay>,
-		codec_delay: CodecDelay,
-		seek_preroll: SeekPreroll,
-		translate: Vec<Translate>,
-		video: Option<Video>,
-		audio: Option<Audio>,
-		content_encodings: Option<ContentEncodings>
+ebml_define! {
+	#[repr(Unsigned)]
+	pub enum TrackType {
+		Video    = 0x01,
+		Audio    = 0x02,
+		Complex  = 0x03,
+		Logo     = 0x10,
+		Subtitle = 0x11,
+		Button   = 0x12,
+		Control  = 0x20,
+		Metadata = 0x21
 	}
 }
 
-ebml_element! {
-	struct Number {
-		const ID = 0xd7;
+ebml_define! {
+	#[allow(dead_code)]
+	pub struct Track {
+		pub number: NonZeroUnsigned @ 0xd7,
+		pub uid: NonZeroUnsigned @ 0x73c5,
+		#[rename = "type"]
+		pub ty: TrackType @ 0x83,
+		pub enabled: bool @ 0xb9 = true,
+		pub default: bool @ 0x88 = true,
+		pub forced: bool @ 0x55aa = false,
+		pub hearing_impaired: Option<bool> @ 0x55ab,
+		pub visual_impaired: Option<bool> @ 0x55ac,
+		pub text_descriptions: Option<bool> @ 0x55ad,
+		pub original: Option<bool> @ 0x55ae,
+		pub commentary: Option<bool> @ 0x55af,
+		pub lacing: bool @ 0x9c = true,
+		pub min_cache: Unsigned @ 0x6de7 = 0,
+		pub max_cache: Option<Unsigned> @ 0x6df8,
+		pub default_duration: Option<NonZeroUnsigned> @ 0x23e383,
+		pub default_decoded_field_duration: Option<NonZeroUnsigned> @ 0x234e7a,
+		pub track_timestamp_scale: PositiveFloat @ 0x23314f = 1.0,
+		pub track_offset: Option<Signed> @ 0x537f,
+		pub max_block_addition_id: Unsigned @ 0x55ee = 0,
+		pub block_addition_mappings: Option<Vec<BlockAdditionMapping>> @ 0x41e4,
+		pub name: Option<String> @ 0x536e,
+		pub language: String @ 0x22b59d = "eng",
+		pub codec_id: String @ 0x86,
+		pub codec_private: Option<Bytes> @ 0x63a2,
+		pub codec_name: Option<String> @ 0x258688,
+		pub attachment_link: Option<NonZeroUnsigned> @ 0x7446,
+		pub codec_settings: Option<String> @ 0x3a9697,
+		pub codec_info_url: Option<Vec<String>> @ 0x3b4040,
+		pub codec_download_url: Option<Vec<String>> @ 0x26b240,
+		pub codec_decode_all: bool @ 0xaa = true,
+		pub overlay: Option<Vec<Unsigned>> @ 0x6fab,
+		pub codec_delay: Unsigned @ 0x56aa = 0,
+		pub seek_preroll: Unsigned @ 0x56bb = 0,
+		pub translate: Option<Vec<Translate>> @ 0x6624,
+		pub video: Option<Video> @ 0xe0,
+		pub audio: Option<Audio> @ 0xe1,
+		pub content_encodings: Option<ContentEncodings> @ 0x6d80
+	}
+}
 
-		value: vint
+ebml_define! {
+	#[allow(dead_code)]
+	pub struct BlockAdditionMapping {
+		pub add_id_value: Option<Unsigned> @ 0x41f0,
+		pub add_id_name: Option<String> @ 0x41a4,
+		pub add_id_type: Unsigned @ 0x41e7 = 0,
+		pub add_id_extra_data: Option<Bytes> @ 0x41ed
 	}
 
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
+	fn check(&mut self) -> Result<()> {
+		if !self.add_id_value.as_ref().is_some_and(|val| val.0 < 2) {
 			Ok(())
 		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Track number cannot be zero"))
+			Err(FormatError::InvalidData("`AddIdValue` must be >= 2".into()).into())
 		}
-	}
-}
-
-ebml_element! {
-	struct UID {
-		const ID = 0x73c5;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Track UID cannot be zero"))
-		}
-	}
-}
-
-ebml_element! {
-	struct Type {
-		const ID = 0x83;
-
-		value: vint
-	}
-}
-
-ebml_element! {
-	struct Enabled {
-		const ID = 0xb9;
-
-		value: vint = 1
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value <= 1 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Invalid value for boolean"))
-		}
-	}
-}
-
-ebml_element! {
-	struct Default {
-		const ID = 0x88;
-
-		value: vint = 1
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value <= 1 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Invalid value for boolean"))
-		}
-	}
-}
-
-ebml_element! {
-	struct Forced {
-		const ID = 0x55aa;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value <= 1 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Invalid value for boolean"))
-		}
-	}
-}
-
-ebml_element! {
-	struct HearingImpaired {
-		const ID = 0x55ab;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value <= 1 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Invalid value for boolean"))
-		}
-	}
-}
-
-ebml_element! {
-	struct VisualImpaired {
-		const ID = 0x55ac;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value <= 1 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Invalid value for boolean"))
-		}
-	}
-}
-
-ebml_element! {
-	struct TextDescriptions {
-		const ID = 0x55ad;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value <= 1 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Invalid value for boolean"))
-		}
-	}
-}
-
-ebml_element! {
-	struct Original {
-		const ID = 0x55ae;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value <= 1 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Invalid value for boolean"))
-		}
-	}
-}
-
-ebml_element! {
-	struct Commentary {
-		const ID = 0x55af;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value <= 1 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Invalid value for boolean"))
-		}
-	}
-}
-
-ebml_element! {
-	struct Lacing {
-		const ID = 0x9c;
-
-		value: vint = 1
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value <= 1 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Invalid value for boolean"))
-		}
-	}
-}
-
-ebml_element! {
-	struct MinCache {
-		const ID = 0x6de7;
-
-		value: vint
-	}
-}
-
-ebml_element! {
-	struct MaxCache {
-		const ID = 0x6df8;
-
-		value: vint
-	}
-}
-
-ebml_element! {
-	struct DefaultDuration {
-		const ID = 0x23e383;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Default duration cannot be zero"))
-		}
-	}
-}
-
-ebml_element! {
-	struct DefaultDecodedFieldDuration {
-		const ID = 0x234e7a;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Default decoded field duration cannot be zero"))
-		}
-	}
-}
-
-ebml_element! {
-	struct TimestampScale {
-		const ID = 0x23314f;
-
-		value: vfloat = 1.0
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value > 0.0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Track timestamp scale must be positive"))
-		}
-	}
-}
-
-ebml_element! {
-	struct Offset {
-		const ID = 0x537f;
-
-		value: vint
-	}
-}
-
-ebml_element! {
-	struct Name {
-		const ID = 0x536e;
-
-		value: String
-	}
-}
-
-ebml_element! {
-	struct Language {
-		const ID = 0x22b59d;
-
-		value: String = "eng"
-	}
-}
-
-ebml_element! {
-	struct CodecId {
-		const ID = 0x86;
-
-		value: String
-	}
-}
-
-ebml_element! {
-	struct CodecPrivate {
-		const ID = 0x63a2;
-
-		value: Vec<u8>
-	}
-}
-
-ebml_element! {
-	struct CodecName {
-		const ID = 0x258688;
-
-		value: String
-	}
-}
-
-ebml_element! {
-	struct AttachmentLink {
-		const ID = 0x7446;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Attachment link cannot be zero"))
-		}
-	}
-}
-
-ebml_element! {
-	struct CodecSettings {
-		const ID = 0x3a9697;
-
-		value: String
-	}
-}
-
-ebml_element! {
-	struct CodecInfoUrl {
-		const ID = 0x3b4040;
-
-		value: String
-	}
-}
-
-ebml_element! {
-	struct CodecDownloadUrl {
-		const ID = 0x26b240;
-
-		value: String
-	}
-}
-
-ebml_element! {
-	struct CodecDecodeAll {
-		const ID = 0xaa;
-
-		value: vint = 1
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value <= 1 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Invalid value for boolean"))
-		}
-	}
-}
-
-ebml_element! {
-	struct Overlay {
-		const ID = 0x6fab;
-
-		value: vint
-	}
-}
-
-ebml_element! {
-	struct CodecDelay {
-		const ID = 0x56aa;
-
-		value: vint
-	}
-}
-
-ebml_element! {
-	struct SeekPreroll {
-		const ID = 0x56bb;
-
-		value: vint
 	}
 }

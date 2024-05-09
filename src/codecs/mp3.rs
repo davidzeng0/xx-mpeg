@@ -5,12 +5,12 @@ codec_pair!(CodecId::Mp3, None, AV_CODEC_ID_MP3, Mp3);
 pub struct Mp3Parser;
 
 impl Mp3Parser {
-	pub fn new(_: &mut CodecParams) -> Result<Box<dyn CodecParserTrait>> {
+	pub fn new(_: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
 		Ok(Box::new(Self))
 	}
 }
 
-impl CodecParserTrait for Mp3Parser {
+impl CodecParserImpl for Mp3Parser {
 	fn id(&self) -> CodecId {
 		CodecId::Mp3
 	}

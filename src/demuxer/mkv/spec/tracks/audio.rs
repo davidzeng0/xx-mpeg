@@ -1,94 +1,32 @@
 use super::*;
 
-ebml_element! {
-	struct Audio {
-		const ID = 0xe1;
-
-		sampling_frequency: SamplingFrequency,
-		output_sampling_frequency: Option<OutputSamplingFrequency>,
-		channels: Channels,
-		channel_positions: Option<ChannelPositions>,
-		bit_depth: Option<BitDepth>,
-		emphasis: Emphasis
+ebml_define! {
+	#[repr(Unsigned)]
+	pub enum Emphasis {
+		None            = 0,
+		Cd              = 1,
+		Reserved        = 2,
+		CCITJ17         = 3,
+		Fm50            = 4,
+		Fm75            = 5,
+		PhonoRIAA       = 10,
+		PhonoIECN78     = 11,
+		PhonoTelDec     = 12,
+		PhonoEmi        = 13,
+		PhonoColumbiaLP = 14,
+		PhonoLondon     = 15,
+		PhonoNARTB      = 16
 	}
 }
 
-ebml_element! {
-	struct SamplingFrequency {
-		const ID = 0xb5;
-
-		value: vfloat = 8000.0
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value > 0.0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Sampling frequency must be positive"))
-		}
-	}
-}
-
-ebml_element! {
-	struct OutputSamplingFrequency {
-		const ID = 0x78b5;
-
-		value: vfloat
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value > 0.0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Output sampling frequency must be positive"))
-		}
-	}
-}
-
-ebml_element! {
-	struct Channels {
-		const ID = 0x9f;
-
-		value: vint = 1
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Channel count cannot be zero"))
-		}
-	}
-}
-
-ebml_element! {
-	struct ChannelPositions {
-		const ID = 0x7d7b;
-
-		value: Vec<u8>
-	}
-}
-
-ebml_element! {
-	struct BitDepth {
-		const ID = 0x6264;
-
-		value: vint
-	}
-
-	fn post_parse(&mut self) -> Result<()> {
-		if self.value != 0 {
-			Ok(())
-		} else {
-			Err(Error::new(ErrorKind::InvalidData, "Bit depth cannot be zero"))
-		}
-	}
-}
-
-ebml_element! {
-	struct Emphasis {
-		const ID = 0x52f1;
-
-		value: vint
+ebml_define! {
+	#[allow(dead_code)]
+	pub struct Audio {
+		pub sampling_frequency: PositiveFloat @ 0xb5 = 8_000.0,
+		pub output_sampling_frequency: Option<PositiveFloat> @ 0x78b5,
+		pub channels: NonZeroUnsigned @ 0x9f = 1,
+		pub channel_positions: Option<Bytes> @ 0x7d7b,
+		pub bit_depth: Option<NonZeroUnsigned> @ 0x6264,
+		pub emphasis: Emphasis @ 0x52f1 = Emphasis::None
 	}
 }

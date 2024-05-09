@@ -25,7 +25,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
 	cp -r ffmpeg/include/* /usr/local/include && \
 	cp -r ffmpeg/lib/* /usr/local/lib && \
 	rm -rf ffmpeg && \
-	sudo ldconfig && \
+	ldconfig && \
 	ffmpeg -version
 
 RUN cargo install cargo-valgrind cargo-llvm-cov

@@ -2,9 +2,17 @@
 
 use std::ops::{Deref, DerefMut};
 
+use demuxer::av::AVFormatClass;
 use xx_core::debug;
 
 use super::*;
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
+#[bitflags]
+#[repr(u32)]
+pub enum SeekFlag {
+	Any = 0x1
+}
 
 #[derive(Default)]
 pub struct Track {
@@ -25,7 +33,7 @@ pub struct Track {
 #[derive(Default)]
 pub struct FormatData {
 	pub tracks: Vec<Track>,
-	pub start_time: u64,
+	pub start_time: i64,
 	pub duration: u64,
 	pub time_base: Rational
 }
@@ -61,6 +69,43 @@ static DEMUXERS: &[DemuxerClass<'static>] = &[&mkv::MatroskaClass];
 
 #[asynchronous]
 impl Format {
+	async fn av_open(mut reader: Reader) -> Result<Self> {
+		const AV_SUPPORTED_FORMATS: &[&str] = &[
+			"aac", "matroska", "webm", "mp3", "ogg", "mpegts", "wav", "mov", "mp4", "m4a", "3gp"
+		];
+
+		reader.set_peeking(true).await;
+
+		let Some(result) = AVFormatClass::probe(&mut reader).await? else {
+			return Err(FormatError::UnknownFormat.into());
+		};
+
+		reader.set_peeking(false).await;
+
+		let mut supported = false;
+
+		for format in result.name.split(',') {
+			if AV_SUPPORTED_FORMATS.contains(&format) {
+				supported = true;
+
+				break;
+			}
+		}
+
+		if !supported {
+			return Err(FormatError::UnknownFormat.into());
+		}
+
+		let this = Self {
+			demuxer: AVFormatClass::create(reader).await?,
+			data: FormatData::default()
+		};
+
+		debug!(target: &this, "== Probed format {} (avformat) with a score of {:.2}%", result.long_name, result.score * 100.0);
+
+		Ok(this)
+	}
+
 	pub async fn open(resource: &Resource) -> Result<Self> {
 		let mut reader = Reader::new(resource.create_stream().await?);
 		let mut demuxer = None;
@@ -84,34 +129,33 @@ impl Format {
 			}
 		}
 
-		let demuxer = match demuxer {
-			Some(demuxer) => demuxer,
-			None => return Err(FormatError::UnknownFormat.into())
-		};
+		let mut this = match demuxer {
+			Some(demuxer) => {
+				let this = Self {
+					demuxer: demuxer.create(reader).await?,
+					data: FormatData::default()
+				};
 
-		let mut this = Self {
-			demuxer: demuxer.create(reader).await?,
-			data: FormatData::default()
-		};
+				debug!(target: &this, "== Probed format {} with a score of {:.2}%", demuxer.name(), score * 100.0);
 
-		debug!(target: &this, "== Probed format {} with a score of {:.2}%", demuxer.name(), score * 100.0);
+				this
+			}
+
+			None => Self::av_open(reader).await?
+		};
 
 		this.demuxer.open(&mut this.data).await?;
 
 		for track in &mut this.data.tracks {
 			track.codec_params.ty = track.ty;
-			track.codec_params.packet_time_base = track.time_base;
 
-			track.start_time = track.time_base.rescale(
-				#[allow(clippy::arithmetic_side_effects)]
-				-(track.codec_params.delay as i64),
-				track.codec_params.time_base
-			);
-
-			track.duration = track
-				.duration
-				.checked_add_signed(track.start_time)
-				.ok_or(Core::Overflow)?;
+			if track.start_time == 0 {
+				track.start_time = track.time_base.rescale(
+					#[allow(clippy::arithmetic_side_effects)]
+					-(track.codec_params.delay as i64),
+					track.codec_params.time_base
+				);
+			}
 
 			#[allow(clippy::single_match)]
 			match track.codec_params.ty {
@@ -163,8 +207,10 @@ impl Format {
 		}
 	}
 
-	pub async fn seek(&mut self, track_index: u32, timecode: u64) -> Result<()> {
-		self.demuxer.seek(track_index, timecode).await
+	pub async fn seek(
+		&mut self, track_index: u32, timecode: u64, flags: BitFlags<SeekFlag>
+	) -> Result<()> {
+		self.demuxer.seek(track_index, timecode, flags).await
 	}
 }
 

@@ -1,20 +1,32 @@
 #![allow(unreachable_pub)]
 
 use std::{
-	mem::transmute,
-	ops::{Deref, DerefMut}
+	ffi::{c_char, c_void, CStr},
+	io::SeekFrom,
+	mem::{forget, transmute},
+	ops::{Deref, DerefMut},
+	panic::{catch_unwind, AssertUnwindSafe}
 };
 
 pub use ffmpeg_sys_next::AVCodecID;
 use ffmpeg_sys_next::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
-use xx_core::{error::*, os::error::OsError, paste::paste, pointer::*};
+use xx_core::{
+	async_std::io::*,
+	coroutines::{Context, Task},
+	error::*,
+	impls::AsyncFnOnce,
+	os::error::OsError,
+	paste::paste,
+	pointer::*
+};
 
 use super::*;
 
 pub const UNKNOWN_TIMESTAMP: i64 = AV_NOPTS_VALUE;
 pub const INPUT_BUFFER_PADDING: usize = AV_INPUT_BUFFER_PADDING_SIZE as usize;
+pub const TIME_BASE: u32 = AV_TIME_BASE as u32;
 
 #[errors]
 pub enum AVError {
@@ -127,17 +139,37 @@ fn result_from_av(code: i32) -> Result<i32> {
 	})
 }
 
-macro_rules! ptr_deref {
-	($struct:ident, $av:path, $free:ident) => {
-		impl Drop for $struct {
-			fn drop(&mut self) {
-				let mut ptr = self.0.as_mut_ptr();
+fn av_from_error(err: &Error) -> i32 {
+	match err.os_error() {
+		Some(err) => AVERROR(err as i32),
+		None => AVERROR_EXTERNAL
+	}
+}
 
-				/* Safety: we own this pointer */
-				unsafe { $free(&mut ptr) }
+fn alloc_with<T, F>(alloc: F) -> MutPtr<T>
+where
+	F: FnOnce() -> *mut T
+{
+	let ptr = MutPtr::from(alloc());
+
+	assert!(!ptr.is_null(), "Memory allocation failed");
+
+	ptr
+}
+
+macro_rules! new {
+	($struct:ident, $new:ident) => {
+		impl $struct {
+			pub fn new() -> Self {
+				/* Safety: FFI call */
+				Self(alloc_with(|| unsafe { $new() }))
 			}
 		}
+	};
+}
 
+macro_rules! ptr_deref {
+	($struct:ident, $av:path) => {
 		/// For internal use only. Changing random fields is unsafe
 		impl Deref for $struct {
 			type Target = $av;
@@ -158,20 +190,43 @@ macro_rules! ptr_deref {
 	};
 }
 
-pub struct CodecContext(MutPtr<AVCodecContext>);
+macro_rules! drop {
+	($struct:ident, $free:ident) => {
+		impl Drop for $struct {
+			fn drop(&mut self) {
+				let mut ptr = self.0.as_mut_ptr();
+
+				/* Safety: we own this pointer */
+				unsafe { $free(&mut ptr) };
+			}
+		}
+	};
+}
+
+macro_rules! av_wrapper {
+	($struct:ident, $av:path, $free:ident) => {
+		pub struct $struct(MutPtr<$av>);
+
+		ptr_deref!($struct, $av);
+		drop!($struct, $free);
+	};
+
+	($struct:ident, $av:path, $free:ident, $new:ident) => {
+		av_wrapper!($struct, $av, $free);
+		new!($struct, $new);
+	};
+}
+
+av_wrapper!(CodecContext, AVCodecContext, avcodec_free_context);
 
 impl CodecContext {
 	pub fn new(codec: Ptr<AVCodec>) -> Self {
 		/* Safety: FFI call */
-		let this = Self(unsafe { avcodec_alloc_context3(codec.as_ptr()) }.into());
+		let ptr = alloc_with(|| unsafe { avcodec_alloc_context3(codec.as_ptr()) });
 
-		assert!(!this.0.is_null(), "Could not allocate memory for codec");
-
-		this
+		Self(ptr)
 	}
-}
 
-impl CodecContext {
 	pub fn open(&mut self) -> Result<()> {
 		/* Safety: FFI call */
 		let result = unsafe {
@@ -250,20 +305,14 @@ impl CodecContext {
 	}
 }
 
-ptr_deref!(CodecContext, AVCodecContext, avcodec_free_context);
-
-pub struct AVPacket(MutPtr<ffmpeg_sys_next::AVPacket>);
+av_wrapper!(
+	AVPacket,
+	ffmpeg_sys_next::AVPacket,
+	av_packet_free,
+	av_packet_alloc
+);
 
 impl AVPacket {
-	pub fn new() -> Self {
-		/* Safety: FFI call */
-		let this = Self(unsafe { av_packet_alloc() }.into());
-
-		assert!(!this.0.is_null(), "Failed to allocate packet");
-
-		this
-	}
-
 	pub fn unref(&mut self) {
 		/* Safety: FFI call */
 		unsafe { av_packet_unref(self.0.as_mut_ptr()) }
@@ -275,20 +324,14 @@ impl AVPacket {
 	}
 }
 
-ptr_deref!(AVPacket, ffmpeg_sys_next::AVPacket, av_packet_free);
-
-pub struct AVFrame(MutPtr<ffmpeg_sys_next::AVFrame>);
+av_wrapper!(
+	AVFrame,
+	ffmpeg_sys_next::AVFrame,
+	av_frame_free,
+	av_frame_alloc
+);
 
 impl AVFrame {
-	pub fn new() -> Self {
-		/* Safety: FFI call */
-		let this = Self(unsafe { av_frame_alloc() }.into());
-
-		assert!(!this.0.is_null(), "Failed to allocate frame");
-
-		this
-	}
-
 	pub fn unref(&mut self) {
 		/* Safety: FFI call */
 		unsafe { av_frame_unref(self.0.as_mut_ptr()) };
@@ -302,7 +345,354 @@ impl AVFrame {
 	}
 }
 
-ptr_deref!(AVFrame, ffmpeg_sys_next::AVFrame, av_frame_free);
+struct AsyncReader<'a>(&'a Context, &'a mut Reader, Option<Error>);
+
+unsafe fn with_adapter<'a, F, T, O: From<i32>>(adapter: *mut c_void, read: F) -> O
+where
+	F: FnOnce(&'a mut Reader, &'a mut Option<Error>) -> T,
+	T: for<'b> Task<Output<'b> = O> + 'a
+{
+	let result = catch_unwind(AssertUnwindSafe(|| {
+		/* Safety: guaranteed by caller */
+		let adapter: &mut AsyncReader<'_> = unsafe { MutPtr::from(adapter).cast().as_mut() };
+
+		/* Safety: perform async read */
+		unsafe { scoped(adapter.0, read(adapter.1, &mut adapter.2)) }
+	}));
+
+	match result {
+		Ok(n) => n,
+		Err(_) => AVERROR_BUG.into()
+	}
+}
+
+unsafe extern "C" fn io_read(adapter: *mut c_void, buf: *mut u8, buf_size: i32) -> i32 {
+	#[asynchronous]
+	async fn async_read(
+		reader: &mut Reader, error: &mut Option<Error>, buf: *mut u8, buf_size: i32
+	) -> i32 {
+		let Ok(size) = buf_size.try_into() else {
+			return AVERROR(OsError::Inval as i32);
+		};
+
+		/* Safety: exclusive access to the buffer */
+		let buf = unsafe { MutPtr::slice_from_raw_parts(buf.into(), size).as_mut() };
+
+		let result = reader.read_partial(buf).await;
+
+		#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+		let err = match result {
+			Ok(0) => return AVERROR_EOF,
+			Ok(n) => return length_check(buf, n) as i32,
+			Err(err) => err
+		};
+
+		if err == Core::UnexpectedEof {
+			return AVERROR_EOF;
+		}
+
+		av_from_error(error.insert(err))
+	}
+
+	/* Safety: guaranteed by caller */
+	unsafe {
+		with_adapter(adapter, |reader, error| {
+			async_read(reader, error, buf, buf_size)
+		})
+	}
+}
+
+#[allow(clippy::missing_const_for_fn)]
+unsafe extern "C" fn io_write(_: *mut c_void, _: *mut u8, _: i32) -> i32 {
+	AVERROR(OsError::Inval as i32)
+}
+
+unsafe extern "C" fn io_seek(adapter: *mut c_void, offset: i64, whence: i32) -> i64 {
+	#[asynchronous]
+	async fn async_seek(
+		reader: &mut Reader, error: &mut Option<Error>, offset: i64, whence: i32
+	) -> i64 {
+		if whence & AVSEEK_SIZE != 0 {
+			return match reader.len().await {
+				#[allow(clippy::unwrap_used)]
+				Ok(n) => n.try_into().unwrap(),
+				Err(err) => av_from_error(error.insert(err)) as i64
+			};
+		}
+
+		let seek = match whence {
+			#[allow(clippy::unwrap_used)]
+			/* SEEK_SET */
+			0 => SeekFrom::Start(offset.try_into().unwrap()),
+
+			/* SEEK_CUR */
+			1 => SeekFrom::Current(offset),
+
+			/* SEEK_END */
+			2 => SeekFrom::End(offset),
+
+			_ => return AVERROR(OsError::Inval as i32) as i64
+		};
+
+		match reader.seek(seek).await {
+			#[allow(clippy::unwrap_used)]
+			Ok(()) => reader.position().try_into().unwrap(),
+			Err(err) => av_from_error(error.insert(err)) as i64
+		}
+	}
+
+	/* Safety: guaranteed by caller */
+	unsafe {
+		with_adapter(adapter, |reader, error| {
+			async_seek(reader, error, offset, whence)
+		})
+	}
+}
+
+struct Buf(MutPtr<u8>);
+
+impl Drop for Buf {
+	fn drop(&mut self) {
+		/* Safety: guaranteed by constructor */
+		unsafe { av_free(self.0.as_mut_ptr().cast()) };
+	}
+}
+
+struct IOContext(MutPtr<AVIOContext>);
+
+impl IOContext {
+	fn new() -> Self {
+		/* Safety: FFI call */
+		let buf = Buf(alloc_with(|| unsafe { av_malloc(DEFAULT_BUFFER_SIZE) }).cast());
+
+		#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+		/* Safety: FFI call */
+		let ptr = alloc_with(|| unsafe {
+			avio_alloc_context(
+				buf.0.as_mut_ptr().cast(),
+				DEFAULT_BUFFER_SIZE as i32,
+				0,
+				MutPtr::null().as_mut_ptr(),
+				Some(io_read),
+				Some(io_write),
+				Some(io_seek)
+			)
+		});
+
+		forget(buf);
+
+		Self(ptr)
+	}
+}
+
+ptr_deref!(IOContext, AVIOContext);
+
+impl Drop for IOContext {
+	fn drop(&mut self) {
+		/* free the buffer */
+		let _ = Buf(MutPtr::from(self.buffer).cast());
+
+		let mut ptr = self.0.as_mut_ptr();
+
+		/* Safety: we own this pointer */
+		unsafe { avio_context_free(&mut ptr) };
+	}
+}
+
+struct Adapter<'a> {
+	context: &'a mut IOContext,
+	reader: &'a mut Reader
+}
+
+#[asynchronous]
+impl<'a> Adapter<'a> {
+	fn new(context: &'a mut IOContext, reader: &'a mut Reader) -> Self {
+		Self { context, reader }
+	}
+
+	async fn with<F, Output>(&mut self, func: F) -> Result<Output>
+	where
+		F: for<'b> AsyncFnOnce<&'b mut IOContext, Output = Result<Output>>
+	{
+		self.context.seekable = if self.reader.seekable() {
+			AVIO_SEEKABLE_NORMAL
+		} else {
+			0
+		};
+
+		/* Safety: read on io context */
+		let mut reader = AsyncReader(unsafe { get_context().await }, self.reader, None);
+
+		self.context.opaque = ptr!(&mut reader).as_mut_ptr().cast();
+
+		let result = func.call_once(self.context).await;
+
+		self.context.opaque = MutPtr::null().as_mut_ptr();
+
+		if let Some(err) = reader.2 {
+			result.map_err(|_| err)
+		} else {
+			result
+		}
+	}
+}
+
+#[allow(dead_code)]
+pub struct ProbeResult {
+	pub name: String,
+	pub long_name: String,
+	pub mime_type: String,
+	pub score: f32
+}
+
+pub struct FormatContext(MutPtr<AVFormatContext>, IOContext);
+
+ptr_deref!(FormatContext, AVFormatContext);
+drop!(FormatContext, avformat_close_input);
+
+impl FormatContext {
+	pub fn new() -> Self {
+		let mut this = Self(
+			/* Safety: FFI call */
+			alloc_with(|| unsafe { avformat_alloc_context() }),
+			IOContext::new()
+		);
+
+		this.pb = this.1 .0.as_mut_ptr();
+		this
+	}
+}
+
+#[asynchronous]
+impl FormatContext {
+	pub async fn probe(reader: &mut Reader) -> Result<Option<ProbeResult>> {
+		let read = |io: &mut IOContext| async move {
+			unsafe fn cstr_to_str(cstr: *const c_char) -> String {
+				if cstr.is_null() {
+					return String::new();
+				}
+
+				/* Safety: guaranteed by caller */
+				let str = unsafe { CStr::from_ptr(cstr) };
+
+				#[allow(clippy::unwrap_used)]
+				str.to_str().unwrap().to_string()
+			}
+
+			let mut format = Ptr::null().as_ptr();
+
+			#[allow(clippy::cast_possible_truncation)]
+			/* Safety: FFI call */
+			let score = result_from_av(unsafe {
+				av_probe_input_buffer2(
+					io.0.as_mut_ptr(),
+					&mut format,
+					Ptr::null().as_ptr(),
+					MutPtr::null().as_mut_ptr(),
+					0,
+					DEFAULT_BUFFER_SIZE as u32
+				)
+			})?;
+
+			#[allow(clippy::multiple_unsafe_ops_per_block)]
+			/* Safety: ptr is non-null */
+			let result = unsafe {
+				let format = Ptr::from(format);
+
+				#[allow(clippy::cast_precision_loss)]
+				ProbeResult {
+					name: cstr_to_str(ptr!(format=>name)),
+					long_name: cstr_to_str(ptr!(format=>long_name)),
+					mime_type: cstr_to_str(ptr!(format=>mime_type)),
+					score: score as f32 / AVPROBE_SCORE_MAX as f32
+				}
+			};
+
+			Ok(result)
+		};
+
+		let mut context = IOContext::new();
+		let mut adapter = Adapter::new(&mut context, reader);
+
+		match adapter.with(read).await {
+			Ok(probe) => Ok(Some(probe)),
+			Err(err) if err == AVError::InvalidData => Ok(None),
+			Err(err) => Err(err)
+		}
+	}
+
+	pub async fn open(&mut self, reader: &mut Reader) -> Result<()> {
+		let mut ptr = self.0.as_mut_ptr();
+		let read = |_: &mut IOContext| async move {
+			/* Safety: FFI call */
+			result_from_av(unsafe {
+				avformat_open_input(
+					&mut ptr,
+					Ptr::null().as_ptr(),
+					Ptr::null().as_ptr(),
+					MutPtr::null().as_mut_ptr()
+				)
+			})?;
+
+			/* Safety: FFI call */
+			result_from_av(unsafe { avformat_find_stream_info(ptr, MutPtr::null().as_mut_ptr()) })?;
+
+			Ok(())
+		};
+
+		let mut adapter = Adapter::new(&mut self.1, reader);
+
+		adapter.with(read).await
+	}
+
+	pub async fn read_frame(&mut self, packet: &mut AVPacket, reader: &mut Reader) -> Result<bool> {
+		let ptr = self.0.as_mut_ptr();
+		let read = |_: &mut IOContext| async move {
+			/* Safety: FFI call */
+			result_from_av(unsafe { av_read_frame(ptr, packet.0.as_mut_ptr()) })?;
+
+			Ok(())
+		};
+
+		let mut adapter = Adapter::new(&mut self.1, reader);
+
+		match adapter.with(read).await {
+			Ok(()) => Ok(true),
+			Err(err) if err == AVError::EndOfFile => Ok(false),
+			Err(err) => Err(err)
+		}
+	}
+
+	pub async fn seek(
+		&mut self, track_index: u32, timecode: u64, flags: BitFlags<SeekFlag>, reader: &mut Reader
+	) -> Result<()> {
+		#[allow(clippy::unwrap_used)]
+		let track_index = track_index.try_into().unwrap();
+
+		#[allow(clippy::unwrap_used)]
+		let time = timecode.try_into().unwrap();
+
+		let mut seek_flags = 0;
+
+		if flags.intersects(SeekFlag::Any) {
+			seek_flags |= AVSEEK_FLAG_ANY;
+		}
+
+		let ptr = self.0.as_mut_ptr();
+		let read = |_: &mut IOContext| async move {
+			/* Safety: FFI call */
+			result_from_av(unsafe {
+				avformat_seek_file(ptr, track_index, 0, time, time, seek_flags)
+			})?;
+
+			Ok(())
+		};
+
+		let mut adapter = Adapter::new(&mut self.1, reader);
+
+		adapter.with(read).await
+	}
+}
 
 impl From<Rational> for AVRational {
 	fn from(value: Rational) -> Self {

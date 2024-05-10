@@ -34,7 +34,7 @@ impl AVCodec {
 		context.time_base = params.time_base.into();
 		context.pkt_timebase = params.packet_time_base.into();
 		context.bit_rate = params.bit_rate as i64;
-		context.bits_per_coded_sample = params.bit_depth as i32;
+		context.bits_per_raw_sample = params.bit_depth as i32;
 		context.compression_level = params.compression_level as i32;
 		context.delay = params.delay.try_into().unwrap();
 		context.seek_preroll = params.seek_preroll.try_into().unwrap();
@@ -68,7 +68,7 @@ impl AVCodec {
 
 		params.time_base = context.time_base.into();
 		params.bit_rate = context.bit_rate.try_into().unwrap();
-		params.bit_depth = context.bits_per_coded_sample.try_into().unwrap();
+		params.bit_depth = context.bits_per_raw_sample.try_into().unwrap();
 		params.compression_level = context.compression_level.try_into().unwrap();
 		params.delay = context.delay.try_into().unwrap();
 		params.seek_preroll = context.seek_preroll.try_into().unwrap();

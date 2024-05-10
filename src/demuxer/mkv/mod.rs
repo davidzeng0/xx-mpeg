@@ -484,7 +484,7 @@ impl DemuxerImpl for Matroska {
 		Ok(())
 	}
 
-	async fn seek(&mut self, track: u32, timecode: u64) -> Result<()> {
+	async fn seek(&mut self, track: u32, timecode: u64, _flags: BitFlags<SeekFlag>) -> Result<()> {
 		#[allow(clippy::unwrap_used)]
 		let track = &self.tracks.as_ref().unwrap().tracks[track as usize];
 		let cues = self.cues.as_ref().ok_or(FormatError::CannotSeek)?;
@@ -580,6 +580,43 @@ impl EbmlReader for Probe<'_> {}
 pub struct MatroskaClass;
 
 #[asynchronous]
+async fn do_probe(reader: &mut Reader) -> Result<f32> {
+	let mut probe = Probe { reader };
+	let mut score = 0.0;
+
+	let master = MasterElemHdr::root::<PartialMatroskaRoot>();
+
+	for _ in 0..4 {
+		let element = match master.next_element(probe.reader).await? {
+			Some(element) => element,
+			None => break
+		};
+
+		match element.id {
+			EbmlGlobal::VOID_ID | EbmlGlobal::CRC_32_ID | MatroskaRoot::SEGMENTS_ID => {
+				score = 0.25;
+			}
+
+			EbmlRoot::HEADER_ID => {
+				if Header::parse(&mut probe, &element).await.is_ok() {
+					score = 1.0;
+				} else {
+					score = 0.0;
+				}
+
+				break;
+			}
+
+			_ => ()
+		}
+
+		probe.skip_element(&element).await?;
+	}
+
+	Ok(score)
+}
+
+#[asynchronous]
 impl DemuxerClassImpl for MatroskaClass {
 	fn name(&self) -> &'static str {
 		"Matroska"
@@ -590,38 +627,15 @@ impl DemuxerClassImpl for MatroskaClass {
 	}
 
 	async fn probe(&self, reader: &mut Reader) -> Result<f32> {
-		let mut probe = Probe { reader };
-		let mut score = 0.0;
+		let err = match do_probe(reader).await {
+			Ok(ok) => return Ok(ok),
+			Err(err) => err
+		};
 
-		let master = MasterElemHdr::root::<PartialMatroskaRoot>();
-
-		for _ in 0..4 {
-			let element = match master.next_element(probe.reader).await? {
-				Some(element) => element,
-				None => break
-			};
-
-			match element.id {
-				EbmlGlobal::VOID_ID | EbmlGlobal::CRC_32_ID | MatroskaRoot::SEGMENTS_ID => {
-					score = 0.25;
-				}
-
-				EbmlRoot::HEADER_ID => {
-					if Header::parse(&mut probe, &element).await.is_ok() {
-						score = 1.0;
-					} else {
-						score = 0.0;
-					}
-
-					break;
-				}
-
-				_ => ()
-			}
-
-			probe.skip_element(&element).await?;
+		if err.downcast_ref::<EbmlError>().is_some() {
+			Ok(0.0)
+		} else {
+			Err(err)
 		}
-
-		Ok(score)
 	}
 }

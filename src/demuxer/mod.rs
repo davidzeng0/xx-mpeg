@@ -1,6 +1,6 @@
 #![allow(clippy::module_name_repetitions)]
 
-mod av;
+pub(crate) mod av;
 pub mod mkv;
 
 use super::*;
@@ -9,7 +9,7 @@ use super::*;
 pub trait DemuxerImpl {
 	async fn open(&mut self, data: &mut FormatData) -> Result<()>;
 
-	async fn seek(&mut self, track: u32, timecode: u64) -> Result<()>;
+	async fn seek(&mut self, track: u32, timecode: u64, flags: BitFlags<SeekFlag>) -> Result<()>;
 
 	async fn read_packet(&mut self, data: &mut FormatData, packet: &mut Packet) -> Result<bool>;
 }

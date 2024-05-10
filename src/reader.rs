@@ -195,12 +195,7 @@ impl Reader {
 			SeekFrom::Start(pos) => (pos.overflowing_signed_difference(self.position), pos),
 
 			SeekFrom::End(pos) => {
-				let pos = self
-					.stream
-					.stream_len()
-					.await?
-					.checked_add_signed(pos)
-					.unwrap();
+				let pos = self.len().await?.checked_add_signed(pos).unwrap();
 				(pos.overflowing_signed_difference(self.position), pos)
 			}
 		};
@@ -245,34 +240,23 @@ impl Reader {
 		Ok(())
 	}
 
-	pub const fn position(&self) -> u64 {
-		self.position
-	}
+	pub async fn read_partial(&mut self, buf: &mut [u8]) -> Result<usize> {
+		if unlikely(self.peeking.is_some() && self.stream.buffer().is_empty()) {
+			let spare = self.stream.spare_capacity();
 
-	pub const fn seekable(&self) -> bool {
-		self.seekable
-	}
+			if spare == 0 {
+				return Err(ReaderError::PeekBufferExhausted.into());
+			}
 
-	pub async fn set_peeking(&mut self, peeking: bool) {
-		if peeking == self.peeking.is_some() {
-			return;
+			self.reserve_space(spare).await?;
 		}
 
-		if peeking {
-			self.peeking = Some(self.position);
-			self.stream.move_data_to_beginning();
-		} else {
-			#[allow(clippy::unwrap_used, clippy::arithmetic_side_effects)]
-			let rel = self.position - self.peeking.take().unwrap();
+		let read = self.stream.read(buf).await?;
 
-			/* seek should be within our buffer, no errors should occur */
-			#[allow(
-				clippy::unwrap_used,
-				clippy::arithmetic_side_effects,
-				clippy::cast_possible_wrap
-			)]
-			self.seek_relative(-(rel as i64)).await.unwrap();
-		}
+		#[allow(clippy::arithmetic_side_effects)]
+		(self.position += read as u64);
+
+		Ok(read)
 	}
 
 	pub async fn read_vint_le(&mut self, size: usize) -> Result<u64> {
@@ -340,6 +324,40 @@ impl Reader {
 		let buf = self.read_bytes(size).await?;
 
 		String::from_utf8(buf).map_err(|_| Core::InvalidUtf8.into())
+	}
+
+	pub const fn position(&self) -> u64 {
+		self.position
+	}
+
+	pub const fn seekable(&self) -> bool {
+		self.seekable
+	}
+
+	pub async fn set_peeking(&mut self, peeking: bool) {
+		if peeking == self.peeking.is_some() {
+			return;
+		}
+
+		if peeking {
+			self.peeking = Some(self.position);
+			self.stream.move_data_to_beginning();
+		} else {
+			#[allow(clippy::unwrap_used, clippy::arithmetic_side_effects)]
+			let rel = self.position - self.peeking.take().unwrap();
+
+			/* seek should be within our buffer, no errors should occur */
+			#[allow(
+				clippy::unwrap_used,
+				clippy::arithmetic_side_effects,
+				clippy::cast_possible_wrap
+			)]
+			self.seek_relative(-(rel as i64)).await.unwrap();
+		}
+	}
+
+	pub async fn len(&mut self) -> Result<u64> {
+		self.stream.stream_len().await
 	}
 
 	pub async fn eof(&mut self) -> Result<bool> {

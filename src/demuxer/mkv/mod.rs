@@ -484,7 +484,9 @@ impl DemuxerImpl for Matroska {
 		Ok(())
 	}
 
-	async fn seek(&mut self, track: u32, timecode: u64, _flags: BitFlags<SeekFlag>) -> Result<()> {
+	async fn seek(
+		&mut self, _: &mut FormatData, track: u32, timecode: u64, _flags: BitFlags<SeekFlag>
+	) -> Result<()> {
 		#[allow(clippy::unwrap_used)]
 		let track = &self.tracks.as_ref().unwrap().tracks[track as usize];
 		let cues = self.cues.as_ref().ok_or(FormatError::CannotSeek)?;
@@ -549,7 +551,7 @@ impl DemuxerImpl for Matroska {
 
 		packet.data = self
 			.reader
-			.read_bytes(block.size.try_into().unwrap())
+			.read_bytes(block.size.try_into().map_err(|_| Core::Overflow)?)
 			.await?;
 
 		Ok(true)

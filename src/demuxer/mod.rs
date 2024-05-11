@@ -9,7 +9,9 @@ use super::*;
 pub trait DemuxerImpl {
 	async fn open(&mut self, data: &mut FormatData) -> Result<()>;
 
-	async fn seek(&mut self, track: u32, timecode: u64, flags: BitFlags<SeekFlag>) -> Result<()>;
+	async fn seek(
+		&mut self, data: &mut FormatData, track: u32, timecode: u64, flags: BitFlags<SeekFlag>
+	) -> Result<()>;
 
 	async fn read_packet(&mut self, data: &mut FormatData, packet: &mut Packet) -> Result<bool>;
 }

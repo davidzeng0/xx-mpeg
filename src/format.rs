@@ -188,8 +188,10 @@ impl Format {
 
 			let track = &mut self.data.tracks[packet.track_index as usize];
 
-			if track.discard == Discard::All {
-				continue;
+			match track.discard {
+				Discard::All => continue,
+				Discard::NonKey if !packet.flags.intersects(PacketFlag::Keyframe) => continue,
+				_ => ()
 			}
 
 			if track.parse != CodecParse::None {
@@ -210,7 +212,9 @@ impl Format {
 	pub async fn seek(
 		&mut self, track_index: u32, timecode: u64, flags: BitFlags<SeekFlag>
 	) -> Result<()> {
-		self.demuxer.seek(track_index, timecode, flags).await
+		self.demuxer
+			.seek(&mut self.data, track_index, timecode, flags)
+			.await
 	}
 }
 

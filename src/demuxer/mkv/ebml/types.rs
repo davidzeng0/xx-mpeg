@@ -152,7 +152,9 @@ impl Element for String {
 		R: EbmlReader
 	{
 		#[allow(clippy::unwrap_used)]
-		reader.read_string(header.size.try_into().unwrap()).await
+		reader
+			.read_string(header.size.try_into().map_err(|_| Core::Overflow)?)
+			.await
 	}
 }
 
@@ -168,7 +170,9 @@ impl Element for Bytes {
 	{
 		#[allow(clippy::unwrap_used)]
 		Ok(Self(
-			reader.read_bytes(header.size.try_into().unwrap()).await?
+			reader
+				.read_bytes(header.size.try_into().map_err(|_| Core::Overflow)?)
+				.await?
 		))
 	}
 }

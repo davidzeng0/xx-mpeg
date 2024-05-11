@@ -28,8 +28,12 @@ impl DemuxerImpl for AVDemuxer {
 	async fn open(&mut self, context: &mut FormatData) -> Result<()> {
 		self.format.open(&mut self.reader).await?;
 
-		context.duration = self.format.duration.try_into().unwrap();
 		context.start_time = self.format.start_time;
+		context.duration = self.format.duration.try_into().unwrap();
+		context.duration = context
+			.duration
+			.checked_add_signed(context.start_time.checked_neg().unwrap())
+			.unwrap();
 		context.time_base = Rational::inverse(TIME_BASE);
 
 		for index in 0..self.format.nb_streams {
@@ -99,9 +103,22 @@ impl DemuxerImpl for AVDemuxer {
 		Ok(())
 	}
 
-	async fn seek(&mut self, track: u32, timecode: u64, flags: BitFlags<SeekFlag>) -> Result<()> {
+	async fn seek(
+		&mut self, data: &mut FormatData, track_index: u32, timecode: u64,
+		flags: BitFlags<SeekFlag>
+	) -> Result<()> {
+		let track = &data.tracks[track_index as usize];
+
+		#[allow(clippy::unwrap_used)]
 		self.format
-			.seek(track, timecode, flags, &mut self.reader)
+			.seek(
+				track_index,
+				timecode
+					.checked_add_signed(track.start_time.checked_neg().unwrap())
+					.unwrap(),
+				flags,
+				&mut self.reader
+			)
 			.await?;
 
 		Ok(())
@@ -109,6 +126,18 @@ impl DemuxerImpl for AVDemuxer {
 
 	#[allow(clippy::unwrap_used, clippy::cast_sign_loss)]
 	async fn read_packet(&mut self, context: &mut FormatData, packet: &mut Packet) -> Result<bool> {
+		for index in 0..self.format.nb_streams {
+			let stream_ptr = MutPtr::from(self.format.streams);
+
+			#[allow(clippy::multiple_unsafe_ops_per_block)]
+			/* Safety: FFI */
+			unsafe {
+				let stream = MutPtr::from(ptr!(*stream_ptr.add(index as usize)));
+
+				ptr!(stream=>discard) = context.tracks[index as usize].discard.into();
+			}
+		}
+
 		if !self
 			.format
 			.read_frame(&mut self.packet, &mut self.reader)
@@ -127,7 +156,7 @@ impl DemuxerImpl for AVDemuxer {
 		/* Safety: non-null */
 		packet.data = unsafe { self.packet.data().as_ref().to_vec() };
 		packet.timestamp = self.packet.dts.checked_sub(track.start_time).unwrap();
-		packet.duration = self.packet.duration.try_into().unwrap();
+		packet.duration = self.packet.duration.try_into().unwrap_or(0);
 		packet.flags = BitFlags::from_bits_truncate(self.packet.flags as u32);
 
 		self.packet.unref();

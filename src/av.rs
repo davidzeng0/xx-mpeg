@@ -1,11 +1,12 @@
 #![allow(unreachable_pub)]
 
 use std::{
+	any::Any,
 	ffi::{c_char, c_void, CStr},
 	io::SeekFrom,
 	mem::{forget, transmute},
 	ops::{Deref, DerefMut},
-	panic::{catch_unwind, AssertUnwindSafe}
+	panic::*
 };
 
 pub use ffmpeg_sys_next::AVCodecID;
@@ -13,13 +14,8 @@ use ffmpeg_sys_next::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 use xx_core::{
-	async_std::io::*,
-	coroutines::{Context, Task},
-	error::*,
-	impls::AsyncFnOnce,
-	os::error::OsError,
-	paste::paste,
-	pointer::*
+	async_std::io::*, coroutines::Context, error::*, impls::AsyncFnOnce,
+	opt::hint::*, os::error::OsError, paste::paste, pointer::*
 };
 
 use super::*;
@@ -345,32 +341,59 @@ impl AVFrame {
 	}
 }
 
-struct AsyncReader<'a>(&'a Context, &'a mut Reader, Option<Error>);
+enum Errors {
+	None,
+	Err(Error),
+	Panic(Box<dyn Any + Send + 'static>)
+}
 
-unsafe fn with_adapter<'a, F, T, O: From<i32>>(adapter: *mut c_void, read: F) -> O
+impl Errors {
+	fn fail(&mut self, error: Error) -> &Error {
+		*self = Self::Err(error);
+
+		match self {
+			Self::Err(err) => err,
+
+			/* Safety: just stored it */
+			_ => unsafe { unreachable_unchecked() }
+		}
+	}
+}
+
+struct AsyncReader<'a> {
+	context: &'a Context,
+	reader: &'a mut Reader,
+	error: Errors
+}
+
+unsafe fn with_adapter<F, O: From<i32>>(adapter: *mut c_void, func: F) -> O
 where
-	F: FnOnce(&'a mut Reader, &'a mut Option<Error>) -> T,
-	T: for<'b> Task<Output<'b> = O> + 'a
+	F: for<'a> AsyncFnOnce<(&'a mut Reader, &'a mut Errors), Output = O>
 {
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		/* Safety: guaranteed by caller */
-		let adapter: &mut AsyncReader<'_> = unsafe { MutPtr::from(adapter).cast().as_mut() };
+	/* Safety: guaranteed by caller */
+	let adapter: &mut AsyncReader<'_> = unsafe { MutPtr::from(adapter).cast().as_mut() };
 
-		/* Safety: perform async read */
-		unsafe { scoped(adapter.0, read(adapter.1, &mut adapter.2)) }
+	/* Safety: perform async read */
+	let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+		scoped(
+			adapter.context,
+			func.call_once((adapter.reader, &mut adapter.error))
+		)
 	}));
 
 	match result {
 		Ok(n) => n,
-		Err(_) => AVERROR_BUG.into()
+		Err(err) => {
+			adapter.error = Errors::Panic(err);
+
+			AVERROR_BUG.into()
+		}
 	}
 }
 
+#[asynchronous(sync)]
 unsafe extern "C" fn io_read(adapter: *mut c_void, buf: *mut u8, buf_size: i32) -> i32 {
-	#[asynchronous]
-	async fn async_read(
-		reader: &mut Reader, error: &mut Option<Error>, buf: *mut u8, buf_size: i32
-	) -> i32 {
+	let read = |reader: &mut Reader, error: &mut Errors| async move {
 		let Ok(size) = buf_size.try_into() else {
 			return AVERROR(OsError::Inval as i32);
 		};
@@ -391,15 +414,11 @@ unsafe extern "C" fn io_read(adapter: *mut c_void, buf: *mut u8, buf_size: i32) 
 			return AVERROR_EOF;
 		}
 
-		av_from_error(error.insert(err))
-	}
+		av_from_error(error.fail(err))
+	};
 
 	/* Safety: guaranteed by caller */
-	unsafe {
-		with_adapter(adapter, |reader, error| {
-			async_read(reader, error, buf, buf_size)
-		})
-	}
+	unsafe { with_adapter(adapter, read) }
 }
 
 #[allow(clippy::missing_const_for_fn)]
@@ -407,18 +426,19 @@ unsafe extern "C" fn io_write(_: *mut c_void, _: *mut u8, _: i32) -> i32 {
 	AVERROR(OsError::Inval as i32)
 }
 
-unsafe extern "C" fn io_seek(adapter: *mut c_void, offset: i64, whence: i32) -> i64 {
-	#[asynchronous]
-	async fn async_seek(
-		reader: &mut Reader, error: &mut Option<Error>, offset: i64, whence: i32
-	) -> i64 {
+#[asynchronous(sync)]
+unsafe extern "C" fn io_seek(adapter: *mut c_void, offset: i64, mut whence: i32) -> i64 {
+	let seek = |reader: &mut Reader, error: &mut Errors| async move {
 		if whence & AVSEEK_SIZE != 0 {
 			return match reader.len().await {
 				#[allow(clippy::unwrap_used)]
 				Ok(n) => n.try_into().unwrap(),
-				Err(err) => av_from_error(error.insert(err)) as i64
+				Err(err) => av_from_error(error.fail(err)) as i64
 			};
 		}
+
+		/* reader seek is force by default */
+		whence &= !AVSEEK_FORCE;
 
 		let seek = match whence {
 			#[allow(clippy::unwrap_used)]
@@ -437,16 +457,12 @@ unsafe extern "C" fn io_seek(adapter: *mut c_void, offset: i64, whence: i32) -> 
 		match reader.seek(seek).await {
 			#[allow(clippy::unwrap_used)]
 			Ok(()) => reader.position().try_into().unwrap(),
-			Err(err) => av_from_error(error.insert(err)) as i64
+			Err(err) => av_from_error(error.fail(err)) as i64
 		}
-	}
+	};
 
 	/* Safety: guaranteed by caller */
-	unsafe {
-		with_adapter(adapter, |reader, error| {
-			async_seek(reader, error, offset, whence)
-		})
-	}
+	unsafe { with_adapter(adapter, seek) }
 }
 
 struct Buf(MutPtr<u8>);
@@ -520,8 +536,12 @@ impl<'a> Adapter<'a> {
 			0
 		};
 
-		/* Safety: read on io context */
-		let mut reader = AsyncReader(unsafe { get_context().await }, self.reader, None);
+		let mut reader = AsyncReader {
+			/* Safety: read on io context */
+			context: unsafe { get_context().await },
+			reader: self.reader,
+			error: Errors::None
+		};
 
 		self.context.opaque = ptr!(&mut reader).as_mut_ptr().cast();
 
@@ -529,10 +549,10 @@ impl<'a> Adapter<'a> {
 
 		self.context.opaque = MutPtr::null().as_mut_ptr();
 
-		if let Some(err) = reader.2 {
-			result.map_err(|_| err)
-		} else {
-			result
+		match reader.error {
+			Errors::None => result,
+			Errors::Err(err) => Err(err),
+			Errors::Panic(panic) => resume_unwind(panic)
 		}
 	}
 }

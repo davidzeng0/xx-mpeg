@@ -1,3 +1,5 @@
+use xx_core::{runtime::catch_unwind_safe, static_assertions::const_assert};
+
 use super::*;
 
 enum Errors {
@@ -33,12 +35,12 @@ where
 	let adapter: &mut AsyncReader<'_> = unsafe { MutPtr::from(adapter).cast().as_mut() };
 
 	/* Safety: perform async read */
-	let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+	let result = catch_unwind_safe(|| unsafe {
 		scoped(
 			adapter.context,
 			func.call_once((adapter.reader, &mut adapter.error))
 		)
-	}));
+	});
 
 	match result {
 		Ok(n) => n,
@@ -59,7 +61,6 @@ unsafe extern "C" fn io_read(adapter: *mut c_void, buf: *mut u8, buf_size: i32) 
 
 		/* Safety: exclusive access to the buffer */
 		let buf = unsafe { MutPtr::slice_from_raw_parts(buf.into(), size).as_mut() };
-
 		let result = reader.read_partial(buf).await;
 
 		#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
@@ -81,7 +82,7 @@ unsafe extern "C" fn io_read(adapter: *mut c_void, buf: *mut u8, buf_size: i32) 
 }
 
 #[allow(clippy::missing_const_for_fn)]
-unsafe extern "C" fn io_write(_: *mut c_void, _: *mut u8, _: i32) -> i32 {
+unsafe extern "C" fn io_write(_: *mut c_void, _: *const u8, _: i32) -> i32 {
 	AVERROR(OsError::Inval as i32)
 }
 
@@ -137,6 +138,8 @@ pub struct IOContext(pub MutPtr<AVIOContext>);
 
 impl IOContext {
 	pub fn new() -> Self {
+		const_assert!(DEFAULT_BUFFER_SIZE < i32::MAX as usize);
+
 		/* Safety: FFI call */
 		let buf = Buf(alloc_with(|| unsafe { av_malloc(DEFAULT_BUFFER_SIZE) }).cast());
 

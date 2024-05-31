@@ -106,8 +106,8 @@ impl Format {
 		Ok(this)
 	}
 
-	pub async fn open(resource: &Resource) -> Result<Self> {
-		let mut reader = Reader::new(resource.create_stream().await?);
+	pub async fn open(stream: Stream) -> Result<Self> {
+		let mut reader = Reader::new(stream);
 		let mut demuxer = None;
 		let mut score = 0.0;
 

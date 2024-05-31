@@ -13,14 +13,6 @@ use xx_core::{
 use super::*;
 use crate::{resource::*, FormatError};
 
-pub struct Reader {
-	stream: BufReader<Stream>,
-	position: u64,
-	seek_threshold: u64,
-	peeking: Option<u64>,
-	seekable: bool
-}
-
 macro_rules! read_num_type_endian {
 	($type:ty, $endian_type:ident) => {
 		paste! {
@@ -59,6 +51,14 @@ pub enum ReaderError {
 	PeekBufferExhausted
 }
 
+pub struct Reader {
+	stream: BufReader<Stream>,
+	position: u64,
+	seek_threshold: u64,
+	peeking: Option<u64>,
+	seekable: bool
+}
+
 #[asynchronous]
 impl Reader {
 	read_num_type_endian!(i8, i8);
@@ -69,7 +69,6 @@ impl Reader {
 
 	macro_each!(read_num_type, f32, f64);
 
-	#[inline(never)]
 	#[cold]
 	async fn reserve_space(&mut self, space: usize) -> Result<()> {
 		loop {
@@ -192,11 +191,11 @@ impl Reader {
 				((pos, false), self.position.checked_add_signed(pos).unwrap())
 			}
 
-			SeekFrom::Start(pos) => (pos.overflowing_signed_difference(self.position), pos),
+			SeekFrom::Start(pos) => (pos.overflowing_signed_diff(self.position), pos),
 
 			SeekFrom::End(pos) => {
 				let pos = self.len().await?.checked_add_signed(pos).unwrap();
-				(pos.overflowing_signed_difference(self.position), pos)
+				(pos.overflowing_signed_diff(self.position), pos)
 			}
 		};
 

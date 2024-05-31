@@ -19,4 +19,10 @@ impl AVFrame {
 
 		result_from_av(ret).map(|_| ())
 	}
+
+	#[allow(dead_code)]
+	pub fn move_ref(&mut self, other: &mut Self) {
+		/* Safety: FFI call */
+		unsafe { av_frame_move_ref(other.0.as_mut_ptr(), self.0.as_mut_ptr()) };
+	}
 }

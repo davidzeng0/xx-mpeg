@@ -2,8 +2,8 @@ use super::*;
 
 macro_rules! new {
 	($struct:ident, $new:ident) => {
-		#[allow(clippy::new_without_default)]
 		impl $struct {
+			#[allow(clippy::new_without_default)]
 			pub fn new() -> Self {
 				/* Safety: FFI call */
 				Self(alloc_with(|| unsafe { $new() }))
@@ -51,6 +51,17 @@ macro_rules! ptr_deref {
 			fn deref_mut(&mut self) -> &mut Self::Target {
 				/* Safety: the pointer is always valid */
 				unsafe { self.0.as_mut() }
+			}
+		}
+
+		#[allow(dead_code)]
+		impl $struct {
+			pub const fn as_ptr(&self) -> *const $av {
+				self.0.as_ptr()
+			}
+
+			pub const fn as_mut_ptr(&self) -> *mut $av {
+				self.0.as_mut_ptr()
 			}
 		}
 	};
@@ -146,3 +157,27 @@ macro_rules! define_av_alias_casts {
 }
 
 pub(super) use define_av_alias_casts;
+
+macro_rules! single_option {
+	($name:ident : $type:ty = $option:literal) => {
+		paste! {
+			#[allow(dead_code)]
+			pub fn [< set_ $name >](&mut self, $name: $type) {
+				/* Safety: set the option */
+				unsafe { <$type>::set_c(&mut self.options(), $option, $name) }.unwrap()
+			}
+		}
+	};
+}
+
+pub(super) use single_option;
+
+macro_rules! options {
+	{
+		$($name:ident: $type:ty = $option:literal),*
+	} => {
+		$(single_option!($name: $type = $option);)*
+	}
+}
+
+pub(super) use options;

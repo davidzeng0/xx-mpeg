@@ -16,10 +16,11 @@ define_av_alias! {
 	#[repr(u32)]
 	#[bitflags]
 	pub enum FrameFlag {
-		Corrupt    = AV_FRAME_FLAG_CORRUPT as u32,
-		Key        = AV_FRAME_FLAG_KEY as u32,
-		Discard    = AV_FRAME_FLAG_DISCARD as u32,
-		Interlaced = AV_FRAME_FLAG_INTERLACED as u32
+		Corrupt       = AV_FRAME_FLAG_CORRUPT as u32,
+		Key           = AV_FRAME_FLAG_KEY as u32,
+		Discard       = AV_FRAME_FLAG_DISCARD as u32,
+		Interlaced    = AV_FRAME_FLAG_INTERLACED as u32,
+		TopFieldFirst = AV_FRAME_FLAG_TOP_FIELD_FIRST as u32,
 	}
 }
 
@@ -48,10 +49,52 @@ define_av_alias_casts! {
 	}
 }
 
+define_av_alias_casts! {
+	#[repr(i32)]
+	pub enum Channel = AVChannel {
+		#[default]
+		None                = AVChannel::AV_CHAN_NONE as i32,
+		FrontLeft           = AVChannel::AV_CHAN_FRONT_LEFT as i32,
+		FrontRight          = AVChannel::AV_CHAN_FRONT_RIGHT as i32,
+		FrontCenter         = AVChannel::AV_CHAN_FRONT_CENTER as i32,
+		LowFrequency        = AVChannel::AV_CHAN_LOW_FREQUENCY as i32,
+		BackLeft            = AVChannel::AV_CHAN_BACK_LEFT as i32,
+		BackRight           = AVChannel::AV_CHAN_BACK_RIGHT as i32,
+		FrontLeftOfCenter   = AVChannel::AV_CHAN_FRONT_LEFT_OF_CENTER as i32,
+		FrontRightOfCenter  = AVChannel::AV_CHAN_FRONT_RIGHT_OF_CENTER as i32,
+		BackCenter          = AVChannel::AV_CHAN_BACK_CENTER as i32,
+		SideLeft            = AVChannel::AV_CHAN_SIDE_LEFT as i32,
+		SideRight           = AVChannel::AV_CHAN_SIDE_RIGHT as i32,
+		TopCenter           = AVChannel::AV_CHAN_TOP_CENTER as i32,
+		TopFrontLeft        = AVChannel::AV_CHAN_TOP_FRONT_LEFT as i32,
+		TopFrontCenter      = AVChannel::AV_CHAN_TOP_FRONT_CENTER as i32,
+		TopFrontRight       = AVChannel::AV_CHAN_TOP_FRONT_RIGHT as i32,
+		TopBackLeft         = AVChannel::AV_CHAN_TOP_BACK_LEFT as i32,
+		TopBackCenter       = AVChannel::AV_CHAN_TOP_BACK_CENTER as i32,
+		TopBackRight        = AVChannel::AV_CHAN_TOP_BACK_RIGHT as i32,
+		StereoLeft          = AVChannel::AV_CHAN_STEREO_LEFT as i32,
+		StereoRight         = AVChannel::AV_CHAN_STEREO_RIGHT as i32,
+		WideLeft            = AVChannel::AV_CHAN_WIDE_LEFT as i32,
+		WideRight           = AVChannel::AV_CHAN_WIDE_RIGHT as i32,
+		SurroundDirectLeft  = AVChannel::AV_CHAN_SURROUND_DIRECT_LEFT as i32,
+		SurroundDirectRight = AVChannel::AV_CHAN_SURROUND_DIRECT_RIGHT as i32,
+		LowFrequency2       = AVChannel::AV_CHAN_LOW_FREQUENCY_2 as i32,
+		TopSideLeft         = AVChannel::AV_CHAN_TOP_SIDE_LEFT as i32,
+		TopSideRight        = AVChannel::AV_CHAN_TOP_SIDE_RIGHT as i32,
+		BottomFrontCenter   = AVChannel::AV_CHAN_BOTTOM_FRONT_CENTER as i32,
+		BottomFrontLeft     = AVChannel::AV_CHAN_BOTTOM_FRONT_LEFT as i32,
+		BottomFrontRight    = AVChannel::AV_CHAN_BOTTOM_FRONT_RIGHT as i32,
+		Unused              = AVChannel::AV_CHAN_UNUSED as i32,
+		Unknown             = AVChannel::AV_CHAN_UNKNOWN as i32,
+		AmbisonicBase       = AVChannel::AV_CHAN_AMBISONIC_BASE as i32,
+		AmbisonicEnd        = AVChannel::AV_CHAN_AMBISONIC_END as i32
+	}
+}
+
 define_av_alias! {
 	#[repr(u64)]
 	#[derive(Default, FromPrimitive)]
-	pub enum Channel {
+	pub enum ChannelBit {
 		#[default]
 		Unknown             = 0,
 		FrontLeft           = AV_CH_FRONT_LEFT,
@@ -272,7 +315,6 @@ define_av_alias_casts! {
 		BayerGBRG16BE = AVPixelFormat::AV_PIX_FMT_BAYER_GBRG16BE as i32,
 		BayerGRBG16LE = AVPixelFormat::AV_PIX_FMT_BAYER_GRBG16LE as i32,
 		BayerGRBG16BE = AVPixelFormat::AV_PIX_FMT_BAYER_GRBG16BE as i32,
-		XVMC          = AVPixelFormat::AV_PIX_FMT_XVMC as i32,
 		YUV440P10LE   = AVPixelFormat::AV_PIX_FMT_YUV440P10LE as i32,
 		YUV440P10BE   = AVPixelFormat::AV_PIX_FMT_YUV440P10BE as i32,
 		YUV440P12LE   = AVPixelFormat::AV_PIX_FMT_YUV440P12LE as i32,
@@ -363,5 +405,137 @@ define_av_alias_casts! {
 		NonIntra = AVDiscard::AVDISCARD_NONINTRA as i32,
 		NonKey   = AVDiscard::AVDISCARD_NONKEY as i32,
 		All      = AVDiscard::AVDISCARD_ALL as i32
+	}
+}
+
+define_av_alias_casts! {
+	#[repr(u32)]
+	pub enum ChannelOrder = AVChannelOrder {
+		#[default]
+		Unspec = 0,
+		Native = 1,
+		Custom = 2,
+		Ambisonic = 3
+	}
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ChannelCustom {
+	pub id: Channel,
+	pub name: [u8; 16]
+}
+
+#[derive(Debug, Clone)]
+pub enum ChannelLayout {
+	Unspec(u16),
+	Native(u16, u64),
+	Custom(Vec<ChannelCustom>),
+	Ambisonic(u16, u64)
+}
+
+impl ChannelLayout {
+	pub const LAYOUT_22POINT2: Self = Self::Native(24, AV_CH_LAYOUT_22POINT2);
+	pub const LAYOUT_2POINT1: Self = Self::Native(3, AV_CH_LAYOUT_2POINT1);
+	pub const LAYOUT_2_1: Self = Self::Native(3, AV_CH_LAYOUT_2_1);
+	pub const LAYOUT_2_2: Self = Self::Native(4, AV_CH_LAYOUT_2_2);
+	pub const LAYOUT_3POINT1: Self = Self::Native(4, AV_CH_LAYOUT_3POINT1);
+	pub const LAYOUT_3POINT1POINT2: Self = Self::Native(6, AV_CH_LAYOUT_3POINT1POINT2);
+	pub const LAYOUT_4POINT0: Self = Self::Native(4, AV_CH_LAYOUT_4POINT0);
+	pub const LAYOUT_4POINT1: Self = Self::Native(5, AV_CH_LAYOUT_4POINT1);
+	pub const LAYOUT_5POINT0: Self = Self::Native(5, AV_CH_LAYOUT_5POINT0);
+	pub const LAYOUT_5POINT0_BACK: Self = Self::Native(5, AV_CH_LAYOUT_5POINT0_BACK);
+	pub const LAYOUT_5POINT1: Self = Self::Native(6, AV_CH_LAYOUT_5POINT1);
+	pub const LAYOUT_5POINT1POINT2_BACK: Self = Self::Native(8, AV_CH_LAYOUT_5POINT1POINT2_BACK);
+	pub const LAYOUT_5POINT1POINT4_BACK: Self = Self::Native(10, AV_CH_LAYOUT_5POINT1POINT4_BACK);
+	pub const LAYOUT_5POINT1_BACK: Self = Self::Native(6, AV_CH_LAYOUT_5POINT1_BACK);
+	pub const LAYOUT_6POINT0: Self = Self::Native(6, AV_CH_LAYOUT_6POINT0);
+	pub const LAYOUT_6POINT0_FRONT: Self = Self::Native(6, AV_CH_LAYOUT_6POINT0_FRONT);
+	pub const LAYOUT_6POINT1: Self = Self::Native(7, AV_CH_LAYOUT_6POINT1);
+	pub const LAYOUT_6POINT1_BACK: Self = Self::Native(7, AV_CH_LAYOUT_6POINT1_BACK);
+	pub const LAYOUT_6POINT1_FRONT: Self = Self::Native(7, AV_CH_LAYOUT_6POINT1_FRONT);
+	pub const LAYOUT_7POINT0: Self = Self::Native(7, AV_CH_LAYOUT_7POINT0);
+	pub const LAYOUT_7POINT0_FRONT: Self = Self::Native(7, AV_CH_LAYOUT_7POINT0_FRONT);
+	pub const LAYOUT_7POINT1: Self = Self::Native(8, AV_CH_LAYOUT_7POINT1);
+	pub const LAYOUT_7POINT1POINT2: Self = Self::Native(10, AV_CH_LAYOUT_7POINT1POINT2);
+	pub const LAYOUT_7POINT1POINT4_BACK: Self = Self::Native(12, AV_CH_LAYOUT_7POINT1POINT4_BACK);
+	pub const LAYOUT_7POINT1_TOP_BACK: Self = Self::LAYOUT_5POINT1POINT2_BACK;
+	pub const LAYOUT_7POINT1_WIDE: Self = Self::Native(8, AV_CH_LAYOUT_7POINT1_WIDE);
+	pub const LAYOUT_7POINT1_WIDE_BACK: Self = Self::Native(8, AV_CH_LAYOUT_7POINT1_WIDE_BACK);
+	pub const LAYOUT_7POINT2POINT3: Self = Self::Native(12, AV_CH_LAYOUT_7POINT2POINT3);
+	pub const LAYOUT_9POINT1POINT4_BACK: Self = Self::Native(14, AV_CH_LAYOUT_9POINT1POINT4_BACK);
+	pub const LAYOUT_AMBISONIC_FIRST_ORDER: Self = Self::Ambisonic(4, 0);
+	pub const LAYOUT_CUBE: Self = Self::Native(8, AV_CH_LAYOUT_CUBE);
+	pub const LAYOUT_HEXADECAGONAL: Self = Self::Native(16, AV_CH_LAYOUT_HEXADECAGONAL);
+	pub const LAYOUT_HEXAGONAL: Self = Self::Native(6, AV_CH_LAYOUT_HEXAGONAL);
+	pub const LAYOUT_MONO: Self = Self::Native(1, AV_CH_LAYOUT_MONO);
+	pub const LAYOUT_OCTAGONAL: Self = Self::Native(8, AV_CH_LAYOUT_OCTAGONAL);
+	pub const LAYOUT_QUAD: Self = Self::Native(4, AV_CH_LAYOUT_QUAD);
+	pub const LAYOUT_STEREO: Self = Self::Native(2, AV_CH_LAYOUT_STEREO);
+	pub const LAYOUT_STEREO_DOWNMIX: Self = Self::Native(2, AV_CH_LAYOUT_STEREO_DOWNMIX);
+	pub const LAYOUT_SURROUND: Self = Self::Native(3, AV_CH_LAYOUT_SURROUND);
+
+	pub fn get_default_for_count(channels: u16) -> Self {
+		const LAYOUT_MAP: &[ChannelLayout] = &[
+			ChannelLayout::LAYOUT_MONO,
+			ChannelLayout::LAYOUT_STEREO,
+			ChannelLayout::LAYOUT_2POINT1,
+			ChannelLayout::LAYOUT_SURROUND,
+			ChannelLayout::LAYOUT_2_1,
+			ChannelLayout::LAYOUT_4POINT0,
+			ChannelLayout::LAYOUT_QUAD,
+			ChannelLayout::LAYOUT_2_2,
+			ChannelLayout::LAYOUT_3POINT1,
+			ChannelLayout::LAYOUT_5POINT0_BACK,
+			ChannelLayout::LAYOUT_5POINT0,
+			ChannelLayout::LAYOUT_4POINT1,
+			ChannelLayout::LAYOUT_5POINT1_BACK,
+			ChannelLayout::LAYOUT_5POINT1,
+			ChannelLayout::LAYOUT_6POINT0,
+			ChannelLayout::LAYOUT_6POINT0_FRONT,
+			ChannelLayout::LAYOUT_3POINT1POINT2,
+			ChannelLayout::LAYOUT_HEXAGONAL,
+			ChannelLayout::LAYOUT_6POINT1,
+			ChannelLayout::LAYOUT_6POINT1_BACK,
+			ChannelLayout::LAYOUT_6POINT1_FRONT,
+			ChannelLayout::LAYOUT_7POINT0,
+			ChannelLayout::LAYOUT_7POINT0_FRONT,
+			ChannelLayout::LAYOUT_7POINT1,
+			ChannelLayout::LAYOUT_7POINT1_WIDE_BACK,
+			ChannelLayout::LAYOUT_7POINT1_WIDE,
+			ChannelLayout::LAYOUT_5POINT1POINT2_BACK,
+			ChannelLayout::LAYOUT_OCTAGONAL,
+			ChannelLayout::LAYOUT_CUBE,
+			ChannelLayout::LAYOUT_5POINT1POINT4_BACK,
+			ChannelLayout::LAYOUT_7POINT1POINT2,
+			ChannelLayout::LAYOUT_7POINT1POINT4_BACK,
+			ChannelLayout::LAYOUT_7POINT2POINT3,
+			ChannelLayout::LAYOUT_9POINT1POINT4_BACK,
+			ChannelLayout::LAYOUT_HEXADECAGONAL,
+			ChannelLayout::LAYOUT_STEREO_DOWNMIX,
+			ChannelLayout::LAYOUT_22POINT2
+		];
+
+		for layout in LAYOUT_MAP {
+			if channels == layout.channel_count() {
+				return layout.clone();
+			}
+		}
+
+		Self::Unspec(channels)
+	}
+
+	pub fn channel_count(&self) -> u16 {
+		#[allow(clippy::unwrap_used)]
+		match self {
+			Self::Unspec(channels) => *channels,
+			Self::Native(channels, _) | Self::Ambisonic(channels, _) => *channels,
+			Self::Custom(custom) => custom.len().try_into().unwrap()
+		}
+	}
+}
+
+impl Default for ChannelLayout {
+	fn default() -> Self {
+		Self::Unspec(0)
 	}
 }

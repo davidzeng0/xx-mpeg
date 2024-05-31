@@ -1,7 +1,7 @@
 FROM rust:1.77.1
 
 ARG TARGETARCH
-ARG FFMPEG_VERSION="ffmpeg-n6.1-latest-linux%ARCH%-lgpl-shared-6.1"
+ARG FFMPEG_VERSION="ffmpeg-n7.0-latest-linux%ARCH%-lgpl-shared-7.0"
 
 RUN apt update && \
 	apt install -y valgrind libclang-15-dev pkg-config libopus-dev curl && \

@@ -4,14 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-num-traits = "0.2.18"
+num-traits = "0.2.19"
 num-derive = "0.4.2"
-enumflags2 = "0.7.9"
-ffmpeg-sys-next = { version = "6.1.0", features = ["avcodec", "avfilter", "swresample"] }
+enumflags2 = { git = "https://github.com/davidzeng0/enumflags2.git" }
+ffmpeg-sys-next = { version = "7.0.0", features = ["avcodec", "avfilter", "swresample"] }
 opus = "0.3.0"
 bitreader = "0.3.8"
 constcat = "0.5.0"
-thiserror = "1.0.59"
+thiserror = "1.0.61"
 xx-core = { git = "https://github.com/davidzeng0/xx-core" }
 xx-pulse = { git = "https://github.com/davidzeng0/xx-pulse" }
 xx-url = { git = "https://github.com/davidzeng0/xx-url" }
@@ -33,6 +33,7 @@ unused_qualifications = "warn"
 variant_size_differences = "warn"
 
 [lints.clippy]
+field_reassign_with_default = "allow"
 missing_transmute_annotations = "allow"
 arithmetic_side_effects = "warn"
 cast_possible_truncation = "warn"

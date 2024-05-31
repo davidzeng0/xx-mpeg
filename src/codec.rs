@@ -12,6 +12,7 @@ pub type FrameFlag = av::FrameFlag;
 
 pub type SampleFormat = av::SampleFormat;
 pub type Channel = av::Channel;
+pub type ChannelLayout = av::ChannelLayout;
 
 pub type PictureType = av::PictureType;
 pub type PixelFormat = av::PixelFormat;
@@ -58,8 +59,7 @@ pub struct CodecParams {
 	pub seek_preroll: u32,
 
 	pub sample_rate: u32,
-	pub channels: u16,
-	pub channel_layout: u64,
+	pub ch_layout: ChannelLayout,
 	pub frame_size: u32,
 	pub sample_format: SampleFormat,
 

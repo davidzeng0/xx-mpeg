@@ -39,7 +39,7 @@ impl AacParser {
 		let channels = bits.read_u8(4)?;
 		let _ = audio_object_type;
 
-		params.channels = CHANNEL_TABLE[channels as usize];
+		params.ch_layout = ChannelLayout::Unspec(CHANNEL_TABLE[channels as usize]);
 		params.sample_rate = sample_rate;
 
 		Ok(())

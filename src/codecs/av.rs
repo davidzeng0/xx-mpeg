@@ -1,6 +1,5 @@
 #![allow(unreachable_pub)]
 
-use ffmpeg_sys_next::AVMediaType;
 use xx_core::{error::*, pointer::*};
 
 use super::*;
@@ -40,8 +39,7 @@ impl AVCodec {
 		context.seek_preroll = params.seek_preroll.try_into().unwrap();
 
 		context.sample_rate = params.sample_rate.try_into().unwrap();
-		context.channels = params.channels as i32;
-		context.channel_layout = params.channel_layout;
+		context.ch_layout = (&params.ch_layout).into();
 		context.frame_size = params.frame_size.try_into().unwrap();
 		context.sample_fmt = params.sample_format.into();
 		context.request_sample_fmt = context.sample_fmt;
@@ -74,8 +72,7 @@ impl AVCodec {
 		params.seek_preroll = context.seek_preroll.try_into().unwrap();
 
 		params.sample_rate = context.sample_rate.try_into().unwrap();
-		params.channels = context.channels.try_into().unwrap();
-		params.channel_layout = context.channel_layout;
+		params.ch_layout = context.ch_layout.into();
 		params.frame_size = context.frame_size.try_into().unwrap();
 		params.sample_format = context.sample_fmt.into();
 
@@ -117,17 +114,7 @@ impl CodecImpl for AVCodec {
 	fn send_frame(&mut self, frame: &Frame) -> Result<()> {
 		self.frame.replace(&frame.data)?;
 
-		self.frame.time_base = frame.time_base.into();
-		self.frame.pkt_dts = frame.decode_timestamp;
-		self.frame.pts = frame.presentation_timestamp;
-		self.frame.duration = frame.duration.try_into().unwrap();
-
-		self.frame.sample_rate = frame.sample_rate.try_into().unwrap();
-		self.frame.channel_layout = frame.channel_layout;
-
-		self.frame.pict_type = frame.picture_type.into();
-		self.frame.sample_aspect_ratio = frame.sample_aspect_ratio.into();
-		self.frame.repeat_pict = frame.repeat_picture;
+		frame.copy_fields_to(&mut self.frame);
 
 		/* Safety: all data is valid */
 		unsafe { self.context.send_frame(&self.frame)? };
@@ -160,29 +147,7 @@ impl CodecImpl for AVCodec {
 			return Ok(false);
 		}
 
-		frame.time_base = frame.data.time_base.into();
-		frame.decode_timestamp = frame.data.pkt_dts;
-		frame.presentation_timestamp = frame.data.pts;
-		frame.duration = frame.data.duration.try_into().unwrap();
-		frame.flags = BitFlags::from_bits_truncate(frame.data.flags as u32);
-
-		frame.samples = frame.data.nb_samples.try_into().unwrap();
-		frame.sample_rate = frame.data.sample_rate.try_into().unwrap();
-		frame.channels = frame.data.channels.try_into().unwrap();
-		frame.channel_layout = frame.data.channel_layout;
-		frame.sample_format = SampleFormat::None;
-
-		frame.picture_type = frame.data.pict_type.into();
-		frame.sample_aspect_ratio = frame.data.sample_aspect_ratio.into();
-		frame.width = frame.data.width.try_into().unwrap();
-		frame.height = frame.data.height.try_into().unwrap();
-		frame.repeat_picture = frame.data.repeat_pict;
-
-		match self.context.codec_type {
-			AVMediaType::AVMEDIA_TYPE_AUDIO => frame.sample_format = frame.data.format.into(),
-			AVMediaType::AVMEDIA_TYPE_VIDEO => frame.pixel_format = frame.data.format.into(),
-			_ => ()
-		}
+		frame.get_fields_from_inner(Some(self.context.codec_type.into()));
 
 		Ok(true)
 	}

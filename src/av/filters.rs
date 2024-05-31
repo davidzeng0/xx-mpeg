@@ -1,4 +1,7 @@
-use std::io::{Cursor, Write};
+use std::{
+	fmt::{Arguments, Display},
+	io::{Cursor, Write}
+};
 
 use super::*;
 
@@ -9,222 +12,334 @@ macro_rules! new_filter {
 			let filter = Filters::find_by_name_c($name).expect("Filter not found");
 			let ctx = graph.create_filter_c(filter, None);
 
-			Self(Filter(ctx))
+			Self(ctx)
 		}
 
-		pub const fn into_inner(self) -> Filter {
+		pub const fn into_filter(self) -> FilterContext {
 			self.0
 		}
 	};
 }
 
-pub struct Volume(Filter);
+trait Format {
+	fn write<W>(&self, writer: &mut W)
+	where
+		W: Write;
+}
+
+impl<T: Display + ?Sized> Format for T {
+	fn write<W>(&self, writer: &mut W)
+	where
+		W: Write
+	{
+		let _ = writer.write_fmt(format_args!("{}", self));
+	}
+}
+
+impl Format for ChannelLayout {
+	fn write<W>(&self, writer: &mut W)
+	where
+		W: Write
+	{
+		let mut buf = [0u8; 2048];
+
+		#[allow(clippy::unwrap_used)]
+		/* Safety: FFI call */
+		let len = result_from_av(unsafe {
+			av_channel_layout_describe(&self.into(), buf.as_mut_ptr().cast(), buf.len())
+		})
+		.unwrap();
+
+		#[allow(clippy::cast_sign_loss, clippy::arithmetic_side_effects)]
+		let _ = writer.write(&buf[0..(len - 1) as usize]);
+	}
+}
+
+fn format_cstr<const N: usize, W, F>(write: W, func: F)
+where
+	W: FnOnce(&mut Cursor<[u8; N]>),
+	F: FnOnce(&CStr)
+{
+	let mut buf = Cursor::new([0u8; N]);
+
+	write(&mut buf);
+
+	#[allow(clippy::panic)]
+	let Ok(1) = buf.write(&[0]) else {
+		panic!("Failed to write string")
+	};
+
+	#[allow(clippy::cast_possible_truncation, clippy::unwrap_used)]
+	let str = CStr::from_bytes_until_nul(&buf.get_ref()[0..buf.position() as usize]).unwrap();
+
+	func(str);
+}
+
+fn format_cstr_args<const N: usize, F>(args: Arguments<'_>, func: F)
+where
+	F: FnOnce(&CStr)
+{
+	format_cstr::<N, _, _>(
+		|cursor| {
+			let _ = cursor.write_fmt(args);
+		},
+		func
+	);
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn format_list<'a, const N: usize, I, T, S, F>(values: I, sep: S, func: F)
+where
+	I: IntoIterator<Item = &'a T>,
+	T: Format + 'a,
+	S: Format,
+	F: FnOnce(&CStr)
+{
+	format_cstr::<N, _, _>(
+		|cursor| {
+			for (i, value) in values.into_iter().enumerate() {
+				if i > 0 {
+					sep.write(cursor);
+				}
+
+				value.write(cursor);
+			}
+		},
+		func
+	);
+}
+
+pub struct BufferSrc(FilterContext);
+
+impl BufferSrc {
+	pub fn send_frame(&mut self, frame: AVFrame) -> Result<()> {
+		/* Safety: FFI call */
+		result_from_av(unsafe {
+			av_buffersrc_add_frame(self.0.as_mut_ptr(), frame.0.as_mut_ptr())
+		})?;
+
+		drop(frame);
+
+		Ok(())
+	}
+
+	pub fn drain(&mut self) -> Result<()> {
+		/* Safety: FFI call */
+		result_from_av(unsafe {
+			av_buffersrc_add_frame(self.0.as_mut_ptr(), MutPtr::null().as_mut_ptr())
+		})?;
+
+		Ok(())
+	}
+}
+
+deref_inner!(BufferSrc, FilterContext);
+
+pub struct BufferSink(FilterContext);
+
+impl BufferSink {
+	pub fn receive_frame(&mut self, frame: &mut AVFrame) -> Result<bool> {
+		/* Safety: FFI call */
+		result_from_av_maybe_none(unsafe {
+			av_buffersink_get_frame(self.0.as_mut_ptr(), frame.0.as_mut_ptr())
+		})
+	}
+
+	pub fn set_frame_size(&mut self, frame_size: u32) {
+		/* Safety: FFI call */
+		unsafe { av_buffersink_set_frame_size(self.0.as_mut_ptr(), frame_size) };
+	}
+}
+
+deref_inner!(BufferSink, FilterContext);
+
+pub struct AudioBufferSrc(BufferSrc);
+
+impl AudioBufferSrc {
+	options! {
+		time_base: Rational = c"time_base",
+		sample_rate: i32 = c"sample_rate",
+		sample_fmt: SampleFormat = c"sample_fmt",
+		ch_layout_str: &CStr = c"channel_layout",
+		channels: i32 = c"channels"
+	}
+
+	pub fn new(graph: &mut FilterGraph) -> Self {
+		#[allow(clippy::expect_used)]
+		let filter = Filters::find_by_name_c(c"abuffer").expect("Filter not found");
+		let ctx = graph.create_filter_c(filter, Some(c"in"));
+
+		Self(BufferSrc(ctx))
+	}
+
+	pub fn set_ch_layout(&mut self, layout: &ChannelLayout) {
+		format_cstr::<2048, _, _>(
+			|cursor| layout.write(cursor),
+			|str| self.set_ch_layout_str(str)
+		);
+	}
+}
+
+deref_inner!(AudioBufferSrc, BufferSrc);
+
+pub struct AudioBufferSink(BufferSink);
+
+impl AudioBufferSink {
+	options! {
+		sample_fmts: &[SampleFormat] = c"sample_fmts",
+		sample_rates: &[i32] = c"sample_rates",
+		ch_layouts_str: &CStr = c"ch_layouts",
+		all_channel_counts: bool = c"all_channel_counts"
+	}
+
+	pub fn new(graph: &mut FilterGraph) -> Self {
+		#[allow(clippy::expect_used)]
+		let filter = Filters::find_by_name_c(c"abuffersink").expect("Filter not found");
+		let ctx = graph.create_filter_c(filter, Some(c"out"));
+
+		Self(BufferSink(ctx))
+	}
+
+	pub fn set_ch_layouts(&mut self, layouts: &[ChannelLayout]) {
+		format_list::<2048, _, _, _, _>(layouts, "|", |str| self.set_ch_layouts_str(str));
+	}
+}
+
+deref_inner!(AudioBufferSink, BufferSink);
+
+pub struct Volume(FilterContext);
 
 impl Volume {
 	new_filter!(c"volume");
 
-	pub fn set_volume(&mut self, volume: f64) -> Result<()> {
-		let mut buf = Cursor::new([0u8; 32]);
-		let _ = buf.write_fmt(format_args!("{}", volume));
+	options! {
+		volume_str: &CStr = c"volume"
+	}
 
-		let Ok(1) = buf.write(&[0]) else {
-			return Err(fmt_error!("Failed to write string"));
-		};
-
-		#[allow(clippy::cast_possible_truncation, clippy::unwrap_used)]
-		let volume = CStr::from_bytes_until_nul(&buf.get_ref()[0..buf.position() as usize]).unwrap();
-
-		/* Safety: set volume */
-		unsafe { self.0 .0.set_string_c(c"volume", volume) }
+	pub fn set_volume(&mut self, volume: f64) {
+		format_cstr_args::<32, _>(format_args!("{}", volume), |volume| {
+			self.set_volume_str(volume);
+		});
 	}
 }
 
-pub struct SetRate(Filter);
+deref_inner!(Volume, FilterContext);
+
+pub struct SetRate(FilterContext);
 
 impl SetRate {
 	new_filter!(c"asetrate");
 
-	pub fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
-		/* Safety: set rate */
-		unsafe { self.0 .0.set_int_c(c"sample_rate", rate as i64) }
+	options! {
+		sample_rate_signed: i32 = c"sample_rate"
+	}
+
+	pub fn set_sample_rate(&mut self, rate: u32) {
+		#[allow(clippy::unwrap_used)]
+		self.set_sample_rate_signed(rate.try_into().unwrap());
 	}
 }
 
-pub struct Tempo(Filter);
+deref_inner!(SetRate, FilterContext);
+
+pub struct Tempo(FilterContext);
 
 impl Tempo {
 	new_filter!(c"atempo");
 
-	pub fn set_tempo(&mut self, tempo: f64) -> Result<()> {
-		/* Safety: set tempo */
-		unsafe { self.0 .0.set_double_c(c"tempo", tempo) }
+	options! {
+		tempo: f64 = c"tempo"
 	}
 }
 
-pub struct FirEqualizer(Filter);
+deref_inner!(Tempo, FilterContext);
 
-fn join_gain_entries<F, Output>(entries: &[(f64, f64)], func: F) -> Result<Output>
-where
-	F: FnOnce(&CStr) -> Result<Output>
-{
-	let mut buf = Cursor::new([0u8; 1024]);
-
-	for (i, (frequency, gain)) in entries.iter().enumerate() {
-		if i > 0 {
-			let _ = buf.write(b"; ");
-		}
-
-		let _ = buf.write_fmt(format_args!("entry({}, {})", frequency, gain));
-	}
-
-	let Ok(1) = buf.write(&[0]) else {
-		return Err(fmt_error!("Failed to write string"));
-	};
-
-	#[allow(clippy::cast_possible_truncation, clippy::unwrap_used)]
-	let joined = CStr::from_bytes_until_nul(&buf.get_ref()[0..buf.position() as usize]).unwrap();
-
-	func(joined)
-}
+pub struct FirEqualizer(FilterContext);
 
 impl FirEqualizer {
 	new_filter!(c"firequalizer");
 
-	pub fn set_gain_entries(&mut self, entries: &[(f64, f64)]) -> Result<()> {
-		/* Safety: set gain entries */
-		join_gain_entries(entries, |str| unsafe {
-			self.0 .0.set_string_c(c"gain_entry", str)
-		})
+	options! {
+		gain_entries_str: &CStr = c"gain_entry",
+		delay: f64 = c"delay",
+		accuracy: f64 = c"accuracy",
+		multi_channel: bool = c"multi",
+		zero_phase: bool = c"zero_phase",
+		use_fft_two_channels: bool = c"fft2"
 	}
 
-	pub fn set_delay(&mut self, delay: f64) -> Result<()> {
-		/* Safety: set delay */
-		unsafe { self.0 .0.set_double_c(c"delay", delay) }
-	}
+	pub fn set_gain_entries(&mut self, entries: &[(f64, f64)]) {
+		format_cstr::<1024, _, _>(
+			|cursor| {
+				for (i, (frequency, gain)) in entries.iter().enumerate() {
+					if i > 0 {
+						let _ = cursor.write(b"; ");
+					}
 
-	pub fn set_accuracy(&mut self, accuracy: f64) -> Result<()> {
-		/* Safety: set accuracy */
-		unsafe { self.0 .0.set_double_c(c"accuracy", accuracy) }
-	}
-
-	pub fn set_multi_channel(&mut self, multi: bool) -> Result<()> {
-		/* Safety: set multi */
-		unsafe { self.0 .0.set_int_c(c"multi", multi as i64) }
-	}
-
-	pub fn set_zero_phase(&mut self, zero_phase: bool) -> Result<()> {
-		/* Safety: set zero phase */
-		unsafe { self.0 .0.set_int_c(c"zero_phase", zero_phase as i64) }
-	}
-
-	pub fn set_use_fft_two_channels(&mut self, enabled: bool) -> Result<()> {
-		/* Safety: set zero phase */
-		unsafe { self.0 .0.set_int_c(c"fft2", enabled as i64) }
+					let _ = cursor.write_fmt(format_args!("entry({}, {})", frequency, gain));
+				}
+			},
+			|str| self.set_gain_entries_str(str)
+		);
 	}
 }
 
-pub struct Resample(Filter);
+deref_inner!(FirEqualizer, FilterContext);
+
+pub struct Resample(FilterContext);
 
 impl Resample {
 	new_filter!(c"aresample");
 
-	pub fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
-		/* Safety: set rate */
-		unsafe { self.0 .0.set_int_c(c"sample_rate", rate as i64) }
+	options! {
+		sample_rate_signed: i32 = c"sample_rate"
+	}
+
+	pub fn set_sample_rate(&mut self, rate: u32) {
+		#[allow(clippy::unwrap_used)]
+		self.set_sample_rate_signed(rate.try_into().unwrap());
 	}
 }
 
-pub struct Pulsator(Filter);
+deref_inner!(Resample, FilterContext);
+
+pub struct Pulsator(FilterContext);
 
 impl Pulsator {
 	new_filter!(c"apulsator");
 
-	pub fn set_level_in(&mut self, gain: f64) -> Result<()> {
-		/* Safety: set option */
-		unsafe { self.0 .0.set_double_c(c"level_in", gain) }
-	}
-
-	pub fn set_level_out(&mut self, gain: f64) -> Result<()> {
-		/* Safety: set option */
-		unsafe { self.0 .0.set_double_c(c"level_out", gain) }
-	}
-
-	pub fn set_amount(&mut self, modulation: f64) -> Result<()> {
-		/* Safety: set option */
-		unsafe { self.0 .0.set_double_c(c"amount", modulation) }
-	}
-
-	pub fn set_offset_left(&mut self, offset: f64) -> Result<()> {
-		/* Safety: set option */
-		unsafe { self.0 .0.set_double_c(c"offset_l", offset) }
-	}
-
-	pub fn set_offset_right(&mut self, offset: f64) -> Result<()> {
-		/* Safety: set option */
-		unsafe { self.0 .0.set_double_c(c"offset_r", offset) }
-	}
-
-	pub fn set_width(&mut self, width: f64) -> Result<()> {
-		/* Safety: set option */
-		unsafe { self.0 .0.set_double_c(c"width", width) }
-	}
-
-	pub fn set_frequency(&mut self, frequency: f64) -> Result<()> {
-		/* Safety: set option */
-		unsafe { self.0 .0.set_double_c(c"hz", frequency) }
+	options! {
+		level_in: f64 = c"level_in",
+		level_out: f64 = c"level_out",
+		modulation: f64 = c"amount",
+		offset_left: f64 = c"offset_l",
+		offset_right: f64 = c"offset_r",
+		width: f64 = c"width",
+		frequency: f64 = c"hz"
 	}
 }
 
-pub struct Echo(Filter);
+deref_inner!(Pulsator, FilterContext);
 
-fn join_floats<F, Output>(floats: &[f32], func: F) -> Result<Output>
-where
-	F: FnOnce(&CStr) -> Result<Output>
-{
-	let mut buf = Cursor::new([0u8; 1024]);
-
-	for (i, value) in floats.iter().enumerate() {
-		if i > 0 {
-			let _ = buf.write(b"|");
-		}
-
-		let _ = buf.write_fmt(format_args!("{}", value));
-	}
-
-	let Ok(1) = buf.write(&[0]) else {
-		return Err(fmt_error!("Failed to write string"));
-	};
-
-	#[allow(clippy::cast_possible_truncation, clippy::unwrap_used)]
-	let joined = CStr::from_bytes_until_nul(&buf.get_ref()[0..buf.position() as usize]).unwrap();
-
-	func(joined)
-}
+pub struct Echo(FilterContext);
 
 impl Echo {
 	new_filter!(c"aecho");
 
-	pub fn set_input_gain(&mut self, gain: f32) -> Result<()> {
-		/* Safety: set gain */
-		unsafe { self.0 .0.set_double_c(c"in_gain", gain as f64) }
+	options! {
+		input_gain: f32 = c"in_gain",
+		output_gain: f32 = c"out_gain",
+		delays_str: &CStr = c"delays",
+		decays_str: &CStr = c"decays"
 	}
 
-	pub fn set_output_gain(&mut self, gain: f32) -> Result<()> {
-		/* Safety: set gain */
-		unsafe { self.0 .0.set_double_c(c"out_gain", gain as f64) }
+	pub fn set_delays(&mut self, delays: &[f32]) {
+		format_list::<1024, _, _, _, _>(delays, "|", |delays| self.set_delays_str(delays));
 	}
 
-	pub fn set_delays(&mut self, delays: &[f32]) -> Result<()> {
-		/* Safety: set delays */
-		join_floats(delays, |str| unsafe {
-			self.0 .0.set_string_c(c"delays", str)
-		})
-	}
-
-	pub fn set_decays(&mut self, decays: &[f32]) -> Result<()> {
-		/* Safety: set decays */
-		join_floats(decays, |str| unsafe {
-			self.0 .0.set_string_c(c"decays", str)
-		})
+	pub fn set_decays(&mut self, decays: &[f32]) {
+		format_list::<1024, _, _, _, _>(decays, "|", |decays| self.set_decays_str(decays));
 	}
 }
+
+deref_inner!(Echo, FilterContext);

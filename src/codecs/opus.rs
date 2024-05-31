@@ -2,7 +2,7 @@ use super::{av::*, *};
 
 codec_pair!(CodecId::Opus, Some("libopus"), AV_CODEC_ID_OPUS, Opus);
 
-const OPUS_SAMPLE_RATE: u32 = 48_000;
+pub const SAMPLE_RATE: u32 = 48_000;
 
 #[errors]
 pub enum OpusError {
@@ -64,8 +64,8 @@ pub struct OpusParser;
 
 impl OpusParser {
 	pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
-		params.sample_rate = OPUS_SAMPLE_RATE;
-		params.packet_time_base = Rational::inverse(OPUS_SAMPLE_RATE);
+		params.sample_rate = SAMPLE_RATE;
+		params.packet_time_base = Rational::inverse(SAMPLE_RATE);
 
 		Ok(Box::new(Self))
 	}
@@ -77,8 +77,8 @@ impl CodecParserImpl for OpusParser {
 	}
 
 	fn parse(&self, packet: &mut Packet) -> Result<()> {
-		if let Ok(samples) = get_nb_samples(&packet.data, OPUS_SAMPLE_RATE) {
-			let new_timescale = Rational::inverse(OPUS_SAMPLE_RATE);
+		if let Ok(samples) = get_nb_samples(&packet.data, SAMPLE_RATE) {
+			let new_timescale = Rational::inverse(SAMPLE_RATE);
 
 			if packet.timestamp != UNKNOWN_TIMESTAMP {
 				packet.timestamp = new_timescale.rescale(packet.timestamp, packet.time_base);

@@ -5,19 +5,20 @@ pub mod filters;
 pub struct AudioFilterGraph(av::AudioFilterGraph);
 
 pub trait Filter {
-	fn create_filter(&self, graph: &mut av::FilterGraph) -> Result<av::Filter>;
+	fn create_filter(&self, graph: &mut av::FilterGraph) -> Result<av::FilterContext>;
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct AudioSrcOptions {
 	pub time_base: Option<Rational>,
 	pub sample_fmt: SampleFormat,
-	pub channel_count: u16,
+	pub ch_layout: ChannelLayout,
 	pub sample_rate: u32
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct AudioSinkOptions {
+	pub ch_layout: Option<ChannelLayout>,
 	pub sample_fmt: SampleFormat,
 	pub sample_rate: u32,
 	pub frame_size: Option<u32>
@@ -30,12 +31,12 @@ impl AudioFilterGraph {
 		let av_in = av::AudioSrcOptions {
 			time_base: input.time_base,
 			sample_fmt: Some(input.sample_fmt),
-			channel_count: Some(input.channel_count),
+			ch_layout: Some(input.ch_layout.clone()),
 			sample_rate: Some(input.sample_rate)
 		};
 
 		let av_out = av::AudioSinkOptions {
-			all_channel_counts: Some(false),
+			ch_layout: output.ch_layout.clone(),
 			sample_fmt: Some(output.sample_fmt),
 			sample_rate: Some(output.sample_rate)
 		};
@@ -65,7 +66,12 @@ impl AudioFilterGraph {
 		let mut frame = Frame::new();
 
 		Ok(match self.0.receive_frame(&mut frame.data)? {
-			true => Some(frame),
+			true => {
+				frame.get_fields_from_inner(Some(MediaType::Audio));
+
+				Some(frame)
+			}
+
 			false => None
 		})
 	}

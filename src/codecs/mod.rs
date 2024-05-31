@@ -19,7 +19,7 @@ pub mod vorbis;
 pub use aac::*;
 pub use flac::*;
 pub use mp3::*;
-pub use opus::*;
+pub use opus::{OpusDecoder, OpusEncoder, OpusParser};
 pub use vorbis::*;
 
 macro_rules! codec_pair {

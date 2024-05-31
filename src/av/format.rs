@@ -1,5 +1,7 @@
 #![allow(clippy::module_name_repetitions)]
 
+use xx_core::static_assertions::const_assert;
+
 use super::*;
 
 #[allow(dead_code)]
@@ -23,7 +25,7 @@ impl FormatContext {
 			IOContext::new()
 		);
 
-		this.pb = this.1 .0.as_mut_ptr();
+		this.pb = this.1.as_mut_ptr();
 		this
 	}
 }
@@ -31,6 +33,8 @@ impl FormatContext {
 #[asynchronous]
 impl FormatContext {
 	pub async fn probe(reader: &mut Reader) -> Result<Option<ProbeResult>> {
+		const_assert!(DEFAULT_BUFFER_SIZE <= u32::MAX as usize);
+
 		let read = |io: &mut IOContext| async move {
 			unsafe fn cstr_to_str(cstr: *const c_char) -> String {
 				if cstr.is_null() {

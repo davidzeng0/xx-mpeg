@@ -402,7 +402,6 @@ fn get_track_codec(id: &str) -> CodecId {
 	}
 }
 
-#[allow(clippy::field_reassign_with_default)]
 fn get_track_codec_params(track: &tracks::Track) -> Result<CodecParams> {
 	fn conv_float(value: f64) -> Result<u32> {
 		#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -432,7 +431,7 @@ fn get_track_codec_params(track: &tracks::Track) -> Result<CodecParams> {
 
 	if let Some(audio) = &track.audio {
 		params.sample_rate = conv_float(audio.sampling_frequency.0)?;
-		params.channels = trunc(audio.channels.0)?;
+		params.ch_layout = ChannelLayout::Unspec(trunc(audio.channels.0)?);
 
 		if let Some(output_sr) = &audio.output_sampling_frequency {
 			params.sample_rate = conv_float(output_sr.0)?;

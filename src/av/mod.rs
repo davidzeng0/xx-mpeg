@@ -36,6 +36,7 @@ mod format;
 mod frame;
 mod io;
 mod macros;
+mod opt;
 mod packet;
 
 pub use codec::*;
@@ -48,6 +49,7 @@ pub use format::*;
 pub use frame::AVFrame;
 use io::*;
 use macros::*;
+pub use opt::*;
 pub use packet::AVPacket;
 
 fn alloc_with<T, F>(alloc: F) -> MutPtr<T>

@@ -1,3 +1,5 @@
+use std::mem::zeroed;
+
 use super::*;
 
 impl From<Rational> for AVRational {
@@ -73,7 +75,7 @@ pub(super) fn av_from_error(err: &Error) -> i32 {
 	}
 }
 
-pub fn result_from_av_maybe_none(err: i32) -> Result<bool> {
+pub(super) fn result_from_av_maybe_none(err: i32) -> Result<bool> {
 	const AGAIN: i32 = AVERROR(OsError::Again as i32);
 
 	match err {
@@ -86,7 +88,111 @@ pub fn result_from_av_maybe_none(err: i32) -> Result<bool> {
 	}
 }
 
-pub fn into_cstr(str: &str) -> CString {
+pub(super) fn into_cstr(str: &str) -> CString {
 	#[allow(clippy::expect_used)]
 	CString::new(str).expect("Valid C string")
+}
+
+impl From<&AVChannelLayout> for ChannelLayout {
+	#[allow(clippy::unwrap_used, clippy::multiple_unsafe_ops_per_block)]
+	fn from(value: &AVChannelLayout) -> Self {
+		let channels = value.nb_channels.try_into().unwrap();
+
+		/* Safety: read mask */
+		let mask = unsafe { value.u.mask };
+
+		let layout = match value.order.into() {
+			ChannelOrder::Unspec => Self::Unspec(channels),
+			ChannelOrder::Native => Self::Native(channels, mask),
+			ChannelOrder::Custom => Self::Custom({
+				let mut custom = Vec::new();
+
+				/* Safety: the channel mapping is owned */
+				let channels = unsafe {
+					MutPtr::slice_from_raw_parts(value.u.map.into(), channels as usize).as_mut()
+				};
+
+				for channel in channels {
+					custom.push(ChannelCustom {
+						id: channel.id.into(),
+
+						/* Safety: transmute i8 to u8 */
+						name: unsafe { transmute(channel.name) }
+					});
+				}
+
+				custom
+			}),
+
+			ChannelOrder::Ambisonic => Self::Ambisonic(channels, mask)
+		};
+
+		layout
+	}
+}
+
+impl From<AVChannelLayout> for ChannelLayout {
+	fn from(mut value: AVChannelLayout) -> Self {
+		let layout = Self::from(&value);
+
+		/* Safety: FFI call */
+		unsafe { av_channel_layout_uninit(&mut value) };
+
+		layout
+	}
+}
+
+impl From<&ChannelLayout> for AVChannelLayout {
+	#[allow(clippy::unwrap_used, clippy::multiple_unsafe_ops_per_block)]
+	fn from(value: &ChannelLayout) -> Self {
+		/* Safety: repr C */
+		let mut layout: Self = unsafe { zeroed() };
+
+		match value {
+			ChannelLayout::Unspec(channels) => {
+				layout.order = AVChannelOrder::AV_CHANNEL_ORDER_UNSPEC;
+				layout.nb_channels = *channels as i32;
+			}
+
+			ChannelLayout::Native(channels, mask) => {
+				layout.order = AVChannelOrder::AV_CHANNEL_ORDER_NATIVE;
+				layout.nb_channels = *channels as i32;
+				layout.u.mask = *mask;
+			}
+
+			ChannelLayout::Ambisonic(channels, mask) => {
+				layout.order = AVChannelOrder::AV_CHANNEL_ORDER_AMBISONIC;
+				layout.nb_channels = *channels as i32;
+				layout.u.mask = *mask;
+			}
+
+			ChannelLayout::Custom(custom) => {
+				/* Safety: FFI call */
+				result_from_av(unsafe {
+					av_channel_layout_custom_init(&mut layout, custom.len().try_into().unwrap())
+				})
+				.unwrap();
+
+				/* Safety: channel mapping is owned */
+				let channels = unsafe {
+					MutPtr::slice_from_raw_parts(layout.u.map.into(), custom.len()).as_mut()
+				};
+
+				for (channel, custom) in channels.iter_mut().zip(custom.iter()) {
+					channel.id = custom.id.into();
+
+					/* Safety: transmute u8 to i8 */
+					channel.name = unsafe { transmute(custom.name) };
+				}
+			}
+		}
+
+		layout
+	}
+}
+
+impl From<ChannelLayout> for AVChannelLayout {
+	fn from(value: ChannelLayout) -> Self {
+		Self::from(&value)
+	}
 }

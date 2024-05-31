@@ -1,6 +1,6 @@
 #![allow(unreachable_pub)]
 
-use xx_core::pointer::*;
+use xx_core::{impls::UIntExtensions, pointer::*};
 
 use super::*;
 use crate::av::{AVCodecID, AVPacket, FormatContext, ProbeResult, TIME_BASE};
@@ -24,7 +24,7 @@ impl AVDemuxer {
 
 #[asynchronous]
 impl DemuxerImpl for AVDemuxer {
-	#[allow(clippy::unwrap_used, clippy::field_reassign_with_default)]
+	#[allow(clippy::unwrap_used)]
 	async fn open(&mut self, context: &mut FormatData) -> Result<()> {
 		self.format.open(&mut self.reader).await?;
 
@@ -32,7 +32,7 @@ impl DemuxerImpl for AVDemuxer {
 		context.duration = self.format.duration.try_into().unwrap();
 		context.duration = context
 			.duration
-			.checked_add_signed(context.start_time.checked_neg().unwrap())
+			.checked_sub_signed(context.start_time)
 			.unwrap();
 		context.time_base = Rational::inverse(TIME_BASE);
 
@@ -67,7 +67,7 @@ impl DemuxerImpl for AVDemuxer {
 				codec_params.bit_depth = params.bits_per_raw_sample.try_into().unwrap();
 				codec_params.seek_preroll = params.seek_preroll.try_into().unwrap();
 
-				codec_params.channel_layout = params.channel_layout;
+				codec_params.ch_layout = (&params.ch_layout).into();
 				codec_params.sample_rate = params.sample_rate.try_into().unwrap();
 				codec_params.frame_size = params.frame_size.try_into().unwrap();
 

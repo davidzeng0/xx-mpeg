@@ -9,7 +9,8 @@ pub struct ProbeResult {
 	pub name: String,
 	pub long_name: String,
 	pub mime_type: String,
-	pub score: f32
+	pub score: f32,
+	pub format: Ptr<AVInputFormat>
 }
 
 pub struct FormatContext(MutPtr<AVFormatContext>, IOContext);
@@ -20,12 +21,12 @@ drop!(FormatContext, avformat_close_input);
 impl FormatContext {
 	pub fn new() -> Self {
 		let mut this = Self(
-			/* Safety: FFI call */
-			alloc_with(|| unsafe { avformat_alloc_context() }),
+			alloc_with(|| ffi!(avformat_alloc_context)),
 			IOContext::new()
 		);
 
 		this.pb = this.1.as_mut_ptr();
+		this.flags |= AVFMT_FLAG_CUSTOM_IO;
 		this
 	}
 }
@@ -51,17 +52,15 @@ impl FormatContext {
 			let mut format = Ptr::null().as_ptr();
 
 			#[allow(clippy::cast_possible_truncation)]
-			/* Safety: FFI call */
-			let score = result_from_av(unsafe {
-				av_probe_input_buffer2(
-					io.0.as_mut_ptr(),
-					&mut format,
-					Ptr::null().as_ptr(),
-					MutPtr::null().as_mut_ptr(),
-					0,
-					DEFAULT_BUFFER_SIZE as u32
-				)
-			})?;
+			let score = ffi!(
+				av_probe_input_buffer2,
+				io.0.as_mut_ptr(),
+				&mut format,
+				Ptr::null().as_ptr(),
+				MutPtr::null().as_mut_ptr(),
+				0,
+				DEFAULT_BUFFER_SIZE as u32
+			)?;
 
 			#[allow(clippy::multiple_unsafe_ops_per_block)]
 			/* Safety: ptr is non-null */
@@ -73,7 +72,8 @@ impl FormatContext {
 					name: cstr_to_str(ptr!(format=>name)),
 					long_name: cstr_to_str(ptr!(format=>long_name)),
 					mime_type: cstr_to_str(ptr!(format=>mime_type)),
-					score: score as f32 / AVPROBE_SCORE_MAX as f32
+					score: score as f32 / AVPROBE_SCORE_MAX as f32,
+					format
 				}
 			};
 
@@ -92,19 +92,33 @@ impl FormatContext {
 
 	pub async fn open(&mut self, reader: &mut Reader) -> Result<()> {
 		let mut ptr = self.0.as_mut_ptr();
-		let read = |_: &mut IOContext| async move {
-			/* Safety: FFI call */
-			result_from_av(unsafe {
-				avformat_open_input(
-					&mut ptr,
-					Ptr::null().as_ptr(),
-					Ptr::null().as_ptr(),
-					MutPtr::null().as_mut_ptr()
-				)
-			})?;
+		let pb = self.1.as_mut_ptr();
 
-			/* Safety: FFI call */
-			result_from_av(unsafe { avformat_find_stream_info(ptr, MutPtr::null().as_mut_ptr()) })?;
+		let read = |_: &mut IOContext| async move {
+			let result = ffi!(
+				avformat_open_input,
+				&mut ptr,
+				Ptr::null().as_ptr(),
+				Ptr::null().as_ptr(),
+				MutPtr::null().as_mut_ptr()
+			);
+
+			if let Err(err) = result {
+				/* in case of panic in alloc_with */
+				self.0 = MutPtr::null();
+				self.0 = alloc_with(|| ffi!(avformat_alloc_context));
+
+				/* Safety: set pb */
+				#[allow(clippy::multiple_unsafe_ops_per_block)]
+				unsafe {
+					ptr!(self.0=>pb = pb);
+					ptr!(self.0=>flags |= AVFMT_FLAG_CUSTOM_IO);
+				}
+
+				return Err(err);
+			}
+
+			ffi!(avformat_find_stream_info, ptr, MutPtr::null().as_mut_ptr())?;
 
 			Ok(())
 		};
@@ -117,8 +131,7 @@ impl FormatContext {
 	pub async fn read_frame(&mut self, packet: &mut AVPacket, reader: &mut Reader) -> Result<bool> {
 		let ptr = self.0.as_mut_ptr();
 		let read = |_: &mut IOContext| async move {
-			/* Safety: FFI call */
-			result_from_av(unsafe { av_read_frame(ptr, packet.0.as_mut_ptr()) })?;
+			ffi!(av_read_frame, ptr, packet.0.as_mut_ptr())?;
 
 			Ok(())
 		};
@@ -149,10 +162,15 @@ impl FormatContext {
 
 		let ptr = self.0.as_mut_ptr();
 		let read = |_: &mut IOContext| async move {
-			/* Safety: FFI call */
-			result_from_av(unsafe {
-				avformat_seek_file(ptr, track_index, 0, time, time, seek_flags)
-			})?;
+			ffi!(
+				avformat_seek_file,
+				ptr,
+				track_index,
+				0,
+				time,
+				time,
+				seek_flags
+			)?;
 
 			Ok(())
 		};

@@ -76,7 +76,7 @@ impl CodecParserImpl for OpusParser {
 		CodecId::Opus
 	}
 
-	fn parse(&self, packet: &mut Packet) -> Result<()> {
+	fn parse(&mut self, packet: &mut Packet) -> Result<()> {
 		if let Ok(samples) = get_nb_samples(&packet.data, SAMPLE_RATE) {
 			let new_timescale = Rational::inverse(SAMPLE_RATE);
 

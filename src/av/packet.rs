@@ -9,8 +9,7 @@ av_wrapper!(
 
 impl AVPacket {
 	pub fn unref(&mut self) {
-		/* Safety: FFI call */
-		unsafe { av_packet_unref(self.0.as_mut_ptr()) }
+		ffi!(av_packet_unref, self.0.as_mut_ptr());
 	}
 
 	pub fn data(&self) -> Ptr<[u8]> {

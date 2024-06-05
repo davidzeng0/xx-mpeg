@@ -620,7 +620,7 @@ async fn do_probe(reader: &mut Reader) -> Result<f32> {
 #[asynchronous]
 impl DemuxerClassImpl for MatroskaClass {
 	fn name(&self) -> &'static str {
-		"Matroska"
+		"Matroska / WebM"
 	}
 
 	async fn create(&self, reader: Reader) -> Result<Demuxer> {
@@ -633,7 +633,8 @@ impl DemuxerClassImpl for MatroskaClass {
 			Err(err) => err
 		};
 
-		if err.downcast_ref::<EbmlError>().is_some() {
+		if err.downcast_ref::<EbmlError>().is_some() || err.downcast_ref::<FormatError>().is_some()
+		{
 			Ok(0.0)
 		} else {
 			Err(err)

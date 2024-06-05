@@ -34,6 +34,7 @@ pub enum CodecId {
 	Opus,
 	Flac,
 	Vorbis,
+	Mp2,
 	Mp3
 }
 
@@ -129,6 +130,7 @@ impl Codec {
 			CodecId::Opus => pick_coder!(Opus),
 			CodecId::Flac => pick_coder!(Flac),
 			CodecId::Vorbis => pick_coder!(Vorbis),
+			CodecId::Mp2 => pick_coder!(Mp2),
 			CodecId::Mp3 => pick_coder!(Mp3),
 			_ => return Err(FormatError::CodecNotFound.into())
 		};
@@ -158,7 +160,7 @@ impl Codec {
 pub trait CodecParserImpl {
 	fn id(&self) -> CodecId;
 
-	fn parse(&self, packet: &mut Packet) -> Result<()>;
+	fn parse(&mut self, packet: &mut Packet) -> Result<()>;
 }
 
 pub struct CodecParser(Box<dyn CodecParserImpl>);
@@ -168,7 +170,7 @@ impl CodecParser {
 		inner = self.0;
 
 		pub fn id(&self) -> CodecId;
-		pub fn parse(&self, packet: &mut Packet) -> Result<()>;
+		pub fn parse(&mut self, packet: &mut Packet) -> Result<()>;
 	}
 
 	pub fn new(params: &mut CodecParams) -> Result<Self> {
@@ -177,6 +179,7 @@ impl CodecParser {
 			CodecId::Opus => OpusParser::new(params)?,
 			CodecId::Flac => FlacParser::new(params)?,
 			CodecId::Vorbis => VorbisParser::new(params)?,
+			CodecId::Mp2 => Mp2Parser::new(params)?,
 			CodecId::Mp3 => Mp3Parser::new(params)?,
 			_ => return Err(FormatError::CodecNotFound.into())
 		};

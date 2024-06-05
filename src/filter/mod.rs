@@ -41,14 +41,13 @@ impl AudioFilterGraph {
 			sample_rate: Some(output.sample_rate)
 		};
 
-		let mut graph = av::AudioFilterGraph::new(&av_in, &av_out);
+		let mut graph = av::AudioFilterGraph::new(1, &av_in, &av_out);
 		let mut filt = Vec::new();
 
 		for filter in filters {
 			filt.push(filter.create_filter(&mut graph)?);
 		}
 
-		graph.nb_threads = 1;
 		graph.set_filters(&mut filt)?;
 
 		if let Some(size) = output.frame_size {

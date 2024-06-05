@@ -5,8 +5,7 @@ macro_rules! new {
 		impl $struct {
 			#[allow(clippy::new_without_default)]
 			pub fn new() -> Self {
-				/* Safety: FFI call */
-				Self(alloc_with(|| unsafe { $new() }))
+				Self(alloc_with(|| ffi!($new)))
 			}
 		}
 	};
@@ -75,8 +74,8 @@ macro_rules! drop {
 			fn drop(&mut self) {
 				let mut ptr = self.0.as_mut_ptr();
 
-				/* Safety: we own this pointer */
-				unsafe { $free(&mut ptr) };
+				/* we own this pointer */
+				ffi!($free, &mut ptr);
 			}
 		}
 	};

@@ -10,7 +10,7 @@ macro_rules! new_filter {
 		pub fn new(graph: &mut FilterGraph) -> Self {
 			#[allow(clippy::expect_used)]
 			let filter = Filters::find_by_name_c($name).expect("Filter not found");
-			let ctx = graph.create_filter_c(filter, None);
+			let ctx = graph.create_filter_c(filter, Some($name));
 
 			Self(ctx)
 		}
@@ -44,10 +44,12 @@ impl Format for ChannelLayout {
 		let mut buf = [0u8; 2048];
 
 		#[allow(clippy::unwrap_used)]
-		/* Safety: FFI call */
-		let len = result_from_av(unsafe {
-			av_channel_layout_describe(&self.into(), buf.as_mut_ptr().cast(), buf.len())
-		})
+		let len = ffi!(
+			av_channel_layout_describe,
+			&self.into(),
+			buf.as_mut_ptr().cast(),
+			buf.len()
+		)
 		.unwrap();
 
 		#[allow(clippy::cast_sign_loss, clippy::arithmetic_side_effects)]
@@ -112,11 +114,12 @@ where
 pub struct BufferSrc(FilterContext);
 
 impl BufferSrc {
-	pub fn send_frame(&mut self, frame: AVFrame) -> Result<()> {
-		/* Safety: FFI call */
-		result_from_av(unsafe {
-			av_buffersrc_add_frame(self.0.as_mut_ptr(), frame.0.as_mut_ptr())
-		})?;
+	pub unsafe fn send_frame(&mut self, frame: AVFrame) -> Result<()> {
+		ffi!(
+			av_buffersrc_add_frame,
+			self.0.as_mut_ptr(),
+			frame.0.as_mut_ptr()
+		)?;
 
 		drop(frame);
 
@@ -124,10 +127,11 @@ impl BufferSrc {
 	}
 
 	pub fn drain(&mut self) -> Result<()> {
-		/* Safety: FFI call */
-		result_from_av(unsafe {
-			av_buffersrc_add_frame(self.0.as_mut_ptr(), MutPtr::null().as_mut_ptr())
-		})?;
+		ffi!(
+			av_buffersrc_add_frame,
+			self.0.as_mut_ptr(),
+			MutPtr::null().as_mut_ptr()
+		)?;
 
 		Ok(())
 	}
@@ -138,16 +142,20 @@ deref_inner!(BufferSrc, FilterContext);
 pub struct BufferSink(FilterContext);
 
 impl BufferSink {
-	pub fn receive_frame(&mut self, frame: &mut AVFrame) -> Result<bool> {
-		/* Safety: FFI call */
-		result_from_av_maybe_none(unsafe {
-			av_buffersink_get_frame(self.0.as_mut_ptr(), frame.0.as_mut_ptr())
-		})
+	pub unsafe fn receive_frame(&mut self, frame: &mut AVFrame) -> Result<bool> {
+		ffi_optional!(
+			av_buffersink_get_frame,
+			self.0.as_mut_ptr(),
+			frame.0.as_mut_ptr()
+		)
 	}
 
 	pub fn set_frame_size(&mut self, frame_size: u32) {
-		/* Safety: FFI call */
-		unsafe { av_buffersink_set_frame_size(self.0.as_mut_ptr(), frame_size) };
+		ffi!(
+			av_buffersink_set_frame_size,
+			self.0.as_mut_ptr(),
+			frame_size
+		);
 	}
 }
 
@@ -167,7 +175,7 @@ impl AudioBufferSrc {
 	pub fn new(graph: &mut FilterGraph) -> Self {
 		#[allow(clippy::expect_used)]
 		let filter = Filters::find_by_name_c(c"abuffer").expect("Filter not found");
-		let ctx = graph.create_filter_c(filter, Some(c"in"));
+		let ctx = graph.create_filter_c(filter, Some(c"abuffersrc"));
 
 		Self(BufferSrc(ctx))
 	}
@@ -195,7 +203,7 @@ impl AudioBufferSink {
 	pub fn new(graph: &mut FilterGraph) -> Self {
 		#[allow(clippy::expect_used)]
 		let filter = Filters::find_by_name_c(c"abuffersink").expect("Filter not found");
-		let ctx = graph.create_filter_c(filter, Some(c"out"));
+		let ctx = graph.create_filter_c(filter, Some(c"abuffersink"));
 
 		Self(BufferSink(ctx))
 	}

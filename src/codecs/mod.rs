@@ -12,12 +12,14 @@ mod av;
 
 pub mod aac;
 pub mod flac;
+pub mod mp2;
 pub mod mp3;
 pub mod opus;
 pub mod vorbis;
 
 pub use aac::*;
 pub use flac::*;
+pub use mp2::*;
 pub use mp3::*;
 pub use opus::{OpusDecoder, OpusEncoder, OpusParser};
 pub use vorbis::*;
@@ -29,27 +31,12 @@ macro_rules! codec_pair {
 
 			impl [<$name Encoder>] {
 				pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecImpl>> {
-					use ::std::ffi::CString;
-					use ::xx_core::pointer::*;
-					use ::ffmpeg_sys_next::{avcodec_find_encoder_by_name, avcodec_find_encoder};
+					use crate::av::*;
 
 					let codec_name: Option<&'static str> = $codec_name;
+					let codec = codec_name.map(Codecs::find_encoder_by_name).unwrap_or_else(|| Codecs::find_encoder($av_codec));
 
-					let mut codec = if let Some(name) = codec_name {
-						let name = CString::new(name).unwrap();
-
-						/* Safety: FFI call */
-						unsafe { avcodec_find_encoder_by_name(name.as_ptr()) }.into()
-					} else {
-						Ptr::null()
-					};
-
-					if codec.is_null() {
-						/* Safety: FFI call */
-						codec = unsafe { avcodec_find_encoder($av_codec) }.into();
-					}
-
-					if !codec.is_null() {
+					if let Some(codec) = codec {
 						Ok(Box::new(AVCodec::new($codec_id, codec.into(), params, Mode::Encode)?))
 					} else {
 						Err(FormatError::CodecNotFound.into())
@@ -61,28 +48,12 @@ macro_rules! codec_pair {
 
 			impl [<$name Decoder>] {
 				pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecImpl>> {
-					use ::std::ffi::CString;
-					use ::xx_core::pointer::*;
-					use ::ffmpeg_sys_next::{avcodec_find_decoder_by_name, avcodec_find_decoder};
-
+					use crate::av::*;
 					let codec_name: Option<&'static str> = $codec_name;
+					let codec = codec_name.map(Codecs::find_decoder_by_name).unwrap_or_else(|| Codecs::find_decoder($av_codec));
 
-					let mut codec = if let Some(name) = codec_name {
-						let name = CString::new(name).unwrap();
-
-						/* Safety: FFI call */
-						unsafe { avcodec_find_decoder_by_name(name.as_ptr()) }.into()
-					} else {
-						Ptr::null()
-					};
-
-					if codec.is_null() {
-						/* Safety: FFI call */
-						codec = unsafe { avcodec_find_decoder($av_codec) }.into();
-					}
-
-					if !codec.is_null() {
-						Ok(Box::new(AVCodec::new($codec_id, codec, params, Mode::Decode)?))
+					if let Some(codec) = codec {
+						Ok(Box::new(AVCodec::new($codec_id, codec.into(), params, Mode::Decode)?))
 					} else {
 						Err(FormatError::CodecNotFound.into())
 					}
@@ -92,4 +63,28 @@ macro_rules! codec_pair {
 	};
 }
 
-pub(super) use codec_pair;
+use codec_pair;
+
+macro_rules! parser_pair {
+	($codec_id:expr, $av_codec:expr, $name:ident) => {
+		paste! {
+			pub struct [<$name Parser>];
+
+			impl [<$name Parser>] {
+				pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
+					use crate::av::*;
+
+					let parser = ParserContext::try_new($av_codec);
+
+					if let Some(parser) = parser {
+						Ok(Box::new(AVCodecParser::new($codec_id, parser, params)))
+					} else {
+						Err(FormatError::CodecNotFound.into())
+					}
+				}
+			}
+		}
+	};
+}
+
+use parser_pair;

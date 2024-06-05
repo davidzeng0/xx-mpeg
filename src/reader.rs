@@ -169,7 +169,7 @@ impl Reader {
 		} else {
 			let new_pos = (self.stream.position() as u64).checked_add_signed(rel);
 
-			if new_pos.is_some() {
+			if rel <= 0 && new_pos.is_some() {
 				#[allow(clippy::cast_possible_truncation, clippy::arithmetic_side_effects)]
 				self.stream.unconsume(-rel as usize);
 				self.position = self.position.wrapping_add_signed(rel);

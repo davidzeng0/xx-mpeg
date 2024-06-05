@@ -3,7 +3,8 @@
 use xx_core::{error::*, pointer::*};
 
 use super::*;
-pub use crate::av::{AVCodecID::*, AVFrame, AVPacket, CodecContext, INPUT_BUFFER_PADDING};
+pub use crate::av::AVCodecID::*;
+use crate::av::*;
 
 pub struct AVCodec {
 	id: CodecId,
@@ -125,7 +126,7 @@ impl CodecImpl for AVCodec {
 	}
 
 	fn receive_packet(&mut self, packet: &mut Packet) -> Result<bool> {
-		/* Safety: FFI call */
+		/* Safety: packet is valid */
 		if !unsafe { self.context.receive_packet(&mut self.packet)? } {
 			return Ok(false);
 		}
@@ -142,7 +143,7 @@ impl CodecImpl for AVCodec {
 	}
 
 	fn receive_frame(&mut self, frame: &mut Frame) -> Result<bool> {
-		/* Safety: FFI call */
+		/* Safety: frame is valid */
 		if !unsafe { self.context.receive_frame(&mut frame.data)? } {
 			return Ok(false);
 		}
@@ -153,14 +154,35 @@ impl CodecImpl for AVCodec {
 	}
 
 	fn drain(&mut self) -> Result<()> {
-		/* Safety: FFI call */
-		unsafe { self.context.drain() }
+		self.context.drain()?;
+
+		Ok(())
 	}
 
 	fn flush(&mut self) -> Result<()> {
-		/* Safety: FFI call */
-		unsafe { self.context.flush() };
+		self.context.flush();
 
 		Ok(())
+	}
+}
+
+pub struct AVCodecParser {
+	id: CodecId,
+	parser: ParserContext
+}
+
+impl AVCodecParser {
+	pub fn new(id: CodecId, parser: ParserContext, _: &mut CodecParams) -> Self {
+		Self { id, parser }
+	}
+}
+
+impl CodecParserImpl for AVCodecParser {
+	fn id(&self) -> CodecId {
+		self.id
+	}
+
+	fn parse(&mut self, packet: &mut Packet) -> Result<()> {
+		self.parser.parse(&packet.data)
 	}
 }

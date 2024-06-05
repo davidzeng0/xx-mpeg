@@ -1,9 +1,10 @@
 #![allow(unreachable_pub)]
 
+use ffmpeg_sys_next::AVInputFormat;
 use xx_core::{impls::UIntExtensions, pointer::*};
 
 use super::*;
-use crate::av::{AVCodecID, AVPacket, FormatContext, ProbeResult, TIME_BASE};
+use crate::av::{AVPacket, FormatContext, ProbeResult, TIME_BASE};
 
 struct AVDemuxer {
 	format: FormatContext,
@@ -13,12 +14,12 @@ struct AVDemuxer {
 
 #[asynchronous]
 impl AVDemuxer {
-	fn new(reader: Reader) -> Self {
-		Self {
-			format: FormatContext::new(),
-			reader,
-			packet: AVPacket::new()
-		}
+	fn new(reader: Reader, input_format: Option<Ptr<AVInputFormat>>) -> Self {
+		let mut format = FormatContext::new();
+
+		format.iformat = input_format.unwrap_or_default().as_ptr();
+
+		Self { format, reader, packet: AVPacket::new() }
 	}
 }
 
@@ -47,21 +48,16 @@ impl DemuxerImpl for AVDemuxer {
 
 				let mut codec_params = CodecParams::default();
 
-				codec_params.id = match params.codec_id {
-					AVCodecID::AV_CODEC_ID_AAC => CodecId::Aac,
-					AVCodecID::AV_CODEC_ID_OPUS => CodecId::Opus,
-					AVCodecID::AV_CODEC_ID_FLAC => CodecId::Flac,
-					AVCodecID::AV_CODEC_ID_VORBIS => CodecId::Vorbis,
-					AVCodecID::AV_CODEC_ID_MP3 => CodecId::Mp3,
-					_ => CodecId::Unknown
-				};
+				codec_params.id = params.codec_id.into();
 
-				codec_params.config = MutPtr::slice_from_raw_parts(
-					params.extradata.into(),
-					params.extradata_size.try_into().unwrap()
-				)
-				.as_mut()
-				.to_vec();
+				if !params.extradata.is_null() {
+					codec_params.config = MutPtr::slice_from_raw_parts(
+						params.extradata.into(),
+						params.extradata_size.try_into().unwrap()
+					)
+					.as_mut()
+					.to_vec();
+				}
 
 				codec_params.bit_rate = params.bit_rate.try_into().unwrap();
 				codec_params.bit_depth = params.bits_per_raw_sample.try_into().unwrap();
@@ -88,12 +84,17 @@ impl DemuxerImpl for AVDemuxer {
 					_ => ()
 				}
 
+				let start_time = match stream.start_time {
+					UNKNOWN_TIMESTAMP => 0,
+					ts => ts
+				};
+
 				context.tracks.push(Track {
 					ty,
 					time_base: stream.time_base.into(),
 					codec_params,
 					id: stream.id.try_into().unwrap(),
-					start_time: stream.start_time,
+					start_time,
 					duration: stream.duration.try_into().unwrap_or(0),
 					..Default::default()
 				});
@@ -170,8 +171,8 @@ pub struct AVFormatClass;
 
 #[asynchronous]
 impl AVFormatClass {
-	pub async fn create(reader: Reader) -> Result<Demuxer> {
-		Ok(Box::new(AVDemuxer::new(reader)))
+	pub async fn create(reader: Reader, format: Option<Ptr<AVInputFormat>>) -> Result<Demuxer> {
+		Ok(Box::new(AVDemuxer::new(reader, format)))
 	}
 
 	pub async fn probe(reader: &mut Reader) -> Result<Option<ProbeResult>> {

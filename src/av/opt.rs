@@ -27,15 +27,13 @@ impl OptionSetter for i32 {
 
 impl OptionSetter for i64 {
 	unsafe fn set_c(object: &mut Object<'_>, option: &CStr, value: Self) -> Result<()> {
-		/* Safety: guaranteed by caller */
-		result_from_av(unsafe {
-			av_opt_set_int(
-				object.0.as_mut_ptr().cast(),
-				option.as_ptr(),
-				value,
-				AV_OPT_SEARCH_CHILDREN
-			)
-		})?;
+		ffi!(
+			av_opt_set_int,
+			object.0.as_mut_ptr().cast(),
+			option.as_ptr(),
+			value,
+			AV_OPT_SEARCH_CHILDREN
+		)?;
 
 		Ok(())
 	}
@@ -50,15 +48,13 @@ impl OptionSetter for f32 {
 
 impl OptionSetter for f64 {
 	unsafe fn set_c(object: &mut Object<'_>, option: &CStr, value: Self) -> Result<()> {
-		/* Safety: guaranteed by caller */
-		result_from_av(unsafe {
-			av_opt_set_double(
-				object.0.as_mut_ptr().cast(),
-				option.as_ptr(),
-				value,
-				AV_OPT_SEARCH_CHILDREN
-			)
-		})?;
+		ffi!(
+			av_opt_set_double,
+			object.0.as_mut_ptr().cast(),
+			option.as_ptr(),
+			value,
+			AV_OPT_SEARCH_CHILDREN
+		)?;
 
 		Ok(())
 	}
@@ -66,15 +62,13 @@ impl OptionSetter for f64 {
 
 impl OptionSetter for &CStr {
 	unsafe fn set_c(object: &mut Object<'_>, option: &CStr, value: Self) -> Result<()> {
-		/* Safety: guaranteed by caller */
-		result_from_av(unsafe {
-			av_opt_set(
-				object.0.as_mut_ptr().cast(),
-				option.as_ptr(),
-				value.as_ptr(),
-				AV_OPT_SEARCH_CHILDREN
-			)
-		})?;
+		ffi!(
+			av_opt_set,
+			object.0.as_mut_ptr().cast(),
+			option.as_ptr(),
+			value.as_ptr(),
+			AV_OPT_SEARCH_CHILDREN
+		)?;
 
 		Ok(())
 	}
@@ -89,15 +83,13 @@ impl OptionSetter for &str {
 
 impl OptionSetter for AVRational {
 	unsafe fn set_c(object: &mut Object<'_>, option: &CStr, value: Self) -> Result<()> {
-		/* Safety: guaranteed by caller */
-		result_from_av(unsafe {
-			av_opt_set_q(
-				object.0.as_mut_ptr().cast(),
-				option.as_ptr(),
-				value,
-				AV_OPT_SEARCH_CHILDREN
-			)
-		})?;
+		ffi!(
+			av_opt_set_q,
+			object.0.as_mut_ptr().cast(),
+			option.as_ptr(),
+			value,
+			AV_OPT_SEARCH_CHILDREN
+		)?;
 
 		Ok(())
 	}
@@ -115,16 +107,14 @@ pub struct ImageSize(pub u32, pub u32);
 impl OptionSetter for ImageSize {
 	unsafe fn set_c(object: &mut Object<'_>, option: &CStr, value: Self) -> Result<()> {
 		#[allow(clippy::unwrap_used)]
-		/* Safety: guaranteed by caller */
-		result_from_av(unsafe {
-			av_opt_set_image_size(
-				object.0.as_mut_ptr().cast(),
-				option.as_ptr(),
-				value.0.try_into().unwrap(),
-				value.1.try_into().unwrap(),
-				AV_OPT_SEARCH_CHILDREN
-			)
-		})?;
+		ffi!(
+			av_opt_set_image_size,
+			object.0.as_mut_ptr().cast(),
+			option.as_ptr(),
+			value.0.try_into().unwrap(),
+			value.1.try_into().unwrap(),
+			AV_OPT_SEARCH_CHILDREN
+		)?;
 
 		Ok(())
 	}
@@ -133,16 +123,14 @@ impl OptionSetter for ImageSize {
 impl<T: Copy> OptionSetter for &[T] {
 	unsafe fn set_c(object: &mut Object<'_>, option: &CStr, value: Self) -> Result<()> {
 		#[allow(clippy::unwrap_used)]
-		/* Safety: guaranteed by caller */
-		result_from_av(unsafe {
-			av_opt_set_bin(
-				object.0.as_mut_ptr().cast(),
-				option.as_ptr(),
-				value.as_ptr().cast(),
-				size_of_val(value).try_into().unwrap(),
-				AV_OPT_SEARCH_CHILDREN
-			)
-		})?;
+		ffi!(
+			av_opt_set_bin,
+			object.0.as_mut_ptr().cast(),
+			option.as_ptr(),
+			value.as_ptr().cast(),
+			size_of_val(value).try_into().unwrap(),
+			AV_OPT_SEARCH_CHILDREN
+		)?;
 
 		Ok(())
 	}
@@ -150,15 +138,13 @@ impl<T: Copy> OptionSetter for &[T] {
 
 impl OptionSetter for AVPixelFormat {
 	unsafe fn set_c(object: &mut Object<'_>, option: &CStr, value: Self) -> Result<()> {
-		/* Safety: guaranteed by caller */
-		result_from_av(unsafe {
-			av_opt_set_pixel_fmt(
-				object.0.as_mut_ptr().cast(),
-				option.as_ptr(),
-				value,
-				AV_OPT_SEARCH_CHILDREN
-			)
-		})?;
+		ffi!(
+			av_opt_set_pixel_fmt,
+			object.0.as_mut_ptr().cast(),
+			option.as_ptr(),
+			value,
+			AV_OPT_SEARCH_CHILDREN
+		)?;
 
 		Ok(())
 	}
@@ -173,15 +159,13 @@ impl OptionSetter for PixelFormat {
 
 impl OptionSetter for AVSampleFormat {
 	unsafe fn set_c(object: &mut Object<'_>, option: &CStr, value: Self) -> Result<()> {
-		/* Safety: guaranteed by caller */
-		result_from_av(unsafe {
-			av_opt_set_sample_fmt(
-				object.0.as_mut_ptr().cast(),
-				option.as_ptr(),
-				value,
-				AV_OPT_SEARCH_CHILDREN
-			)
-		})?;
+		ffi!(
+			av_opt_set_sample_fmt,
+			object.0.as_mut_ptr().cast(),
+			option.as_ptr(),
+			value,
+			AV_OPT_SEARCH_CHILDREN
+		)?;
 
 		Ok(())
 	}
@@ -198,15 +182,13 @@ pub struct VideoRate(pub AVRational);
 
 impl OptionSetter for VideoRate {
 	unsafe fn set_c(object: &mut Object<'_>, option: &CStr, value: Self) -> Result<()> {
-		/* Safety: guaranteed by caller */
-		result_from_av(unsafe {
-			av_opt_set_video_rate(
-				object.0.as_mut_ptr().cast(),
-				option.as_ptr(),
-				value.0,
-				AV_OPT_SEARCH_CHILDREN
-			)
-		})?;
+		ffi!(
+			av_opt_set_video_rate,
+			object.0.as_mut_ptr().cast(),
+			option.as_ptr(),
+			value.0,
+			AV_OPT_SEARCH_CHILDREN
+		)?;
 
 		Ok(())
 	}
@@ -214,15 +196,13 @@ impl OptionSetter for VideoRate {
 
 impl OptionSetter for &AVChannelLayout {
 	unsafe fn set_c(object: &mut Object<'_>, option: &CStr, value: Self) -> Result<()> {
-		/* Safety: guaranteed by caller */
-		result_from_av(unsafe {
-			av_opt_set_chlayout(
-				object.0.as_mut_ptr().cast(),
-				option.as_ptr(),
-				value,
-				AV_OPT_SEARCH_CHILDREN
-			)
-		})?;
+		ffi!(
+			av_opt_set_chlayout,
+			object.0.as_mut_ptr().cast(),
+			option.as_ptr(),
+			value,
+			AV_OPT_SEARCH_CHILDREN
+		)?;
 
 		Ok(())
 	}
@@ -232,9 +212,7 @@ impl OptionSetter for AVChannelLayout {
 	unsafe fn set_c(object: &mut Object<'_>, option: &CStr, value: Self) -> Result<()> {
 		/* Safety: guaranteed by caller */
 		#[allow(clippy::needless_borrows_for_generic_args)]
-		unsafe {
-			<&Self>::set_c(object, option, &value)
-		}
+		(unsafe { <&Self>::set_c(object, option, &value) })
 	}
 }
 

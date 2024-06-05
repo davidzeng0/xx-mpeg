@@ -166,7 +166,11 @@ impl Seek for HttpStream {
 	}
 }
 
-impl StreamImpl for HttpStream {}
+impl StreamImpl for HttpStream {
+	fn seekable(&self) -> bool {
+		true
+	}
+}
 
 pub struct HttpResource {
 	url: String,

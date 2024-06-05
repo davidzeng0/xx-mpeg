@@ -11,14 +11,7 @@ impl Filters {
 	}
 
 	pub fn find_by_name_c(name: &CStr) -> Option<Ptr<AVFilter>> {
-		/* Safety: FFI call */
-		let ptr = Ptr::from(unsafe { avfilter_get_by_name(name.as_ptr()) });
-
-		if !ptr.is_null() {
-			Some(ptr)
-		} else {
-			None
-		}
+		find_with(|| ffi!(avfilter_get_by_name, name.as_ptr()))
 	}
 }
 
@@ -29,10 +22,11 @@ ptr_deref!(FilterContext, AVFilterContext);
 
 impl FilterContext {
 	pub fn init(&mut self) -> Result<()> {
-		/* Safety: FFI call */
-		result_from_av(unsafe {
-			avfilter_init_dict(self.0.as_mut_ptr(), MutPtr::null().as_mut_ptr())
-		})?;
+		ffi!(
+			avfilter_init_dict,
+			self.0.as_mut_ptr(),
+			MutPtr::null().as_mut_ptr()
+		)?;
 
 		Ok(())
 	}
@@ -43,10 +37,13 @@ impl FilterContext {
 	}
 
 	pub fn link(&mut self, pad: u32, dst: &mut Self, dst_pad: u32) -> Result<()> {
-		/* Safety: FFI call */
-		result_from_av(unsafe {
-			avfilter_link(self.0.as_mut_ptr(), pad, dst.0.as_mut_ptr(), dst_pad)
-		})?;
+		ffi!(
+			avfilter_link,
+			self.0.as_mut_ptr(),
+			pad,
+			dst.0.as_mut_ptr(),
+			dst_pad
+		)?;
 
 		Ok(())
 	}
@@ -70,9 +67,9 @@ impl FilterGraph {
 	pub fn create_filter_c(&mut self, filter: Ptr<AVFilter>, name: Option<&CStr>) -> FilterContext {
 		assert!(!filter.is_null(), "Filter is null");
 
-		/* Safety: FFI call */
-		let ptr = alloc_with(|| unsafe {
-			avfilter_graph_alloc_filter(
+		let ptr = alloc_with(|| {
+			ffi!(
+				avfilter_graph_alloc_filter,
 				self.0.as_mut_ptr(),
 				filter.as_ptr(),
 				name.map_or(Ptr::null().as_ptr(), CStr::as_ptr)
@@ -83,10 +80,11 @@ impl FilterGraph {
 	}
 
 	pub fn config(&mut self) -> Result<()> {
-		/* Safety: FFI call */
-		result_from_av(unsafe {
-			avfilter_graph_config(self.0.as_mut_ptr(), MutPtr::null().as_mut_ptr())
-		})?;
+		ffi!(
+			avfilter_graph_config,
+			self.0.as_mut_ptr(),
+			MutPtr::null().as_mut_ptr()
+		)?;
 
 		Ok(())
 	}
@@ -110,8 +108,11 @@ pub struct AudioSinkOptions {
 pub struct AudioFilterGraph(FilterGraph, AudioBufferSrc, AudioBufferSink);
 
 impl AudioFilterGraph {
-	pub fn new(input: &AudioSrcOptions, output: &AudioSinkOptions) -> Self {
+	pub fn new(threads: u16, input: &AudioSrcOptions, output: &AudioSinkOptions) -> Self {
 		let mut graph = FilterGraph::new();
+
+		graph.nb_threads = threads as i32;
+
 		let mut src = AudioBufferSrc::new(&mut graph);
 		let mut sink = AudioBufferSink::new(&mut graph);
 
@@ -171,11 +172,13 @@ impl AudioFilterGraph {
 	}
 
 	pub fn send_frame(&mut self, frame: AVFrame) -> Result<()> {
-		self.1.send_frame(frame)
+		/* Safety: frame is valid */
+		unsafe { self.1.send_frame(frame) }
 	}
 
 	pub fn receive_frame(&mut self, frame: &mut AVFrame) -> Result<bool> {
-		self.2.receive_frame(frame)
+		/* Safety: frame is valid */
+		unsafe { self.2.receive_frame(frame) }
 	}
 
 	pub fn set_frame_size(&mut self, frame_size: u32) {

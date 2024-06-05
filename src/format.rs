@@ -71,12 +71,13 @@ static DEMUXERS: &[DemuxerClass<'static>] = &[&mkv::MatroskaClass];
 impl Format {
 	async fn av_open(mut reader: Reader) -> Result<Self> {
 		const AV_SUPPORTED_FORMATS: &[&str] = &[
-			"aac", "matroska", "webm", "mp3", "ogg", "mpegts", "wav", "mov", "mp4", "m4a", "3gp"
+			"aac", "matroska", "webm", "mp3", "ogg", "mpegts", "wav", "mov", "mp4", "m4a", "3gp",
+			"flac"
 		];
 
 		reader.set_peeking(true).await;
 
-		let Some(result) = AVFormatClass::probe(&mut reader).await? else {
+		let Some(probe) = AVFormatClass::probe(&mut reader).await? else {
 			return Err(FormatError::UnknownFormat.into());
 		};
 
@@ -84,7 +85,7 @@ impl Format {
 
 		let mut supported = false;
 
-		for format in result.name.split(',') {
+		for format in probe.name.split(',') {
 			if AV_SUPPORTED_FORMATS.contains(&format) {
 				supported = true;
 
@@ -93,15 +94,22 @@ impl Format {
 		}
 
 		if !supported {
+			debug!(
+				"== Probed format {} (avformat) with a score of {:.2}%",
+				probe.long_name,
+				probe.score * 100.0
+			);
+			debug!("== Exiting as this is not on the list of allowed formats");
+
 			return Err(FormatError::UnknownFormat.into());
 		}
 
 		let this = Self {
-			demuxer: AVFormatClass::create(reader).await?,
+			demuxer: AVFormatClass::create(reader, Some(probe.format)).await?,
 			data: FormatData::default()
 		};
 
-		debug!(target: &this, "== Probed format {} (avformat) with a score of {:.2}%", result.long_name, result.score * 100.0);
+		debug!(target: &this, "== Probed format {} (avformat) with a score of {:.2}%", probe.long_name, probe.score * 100.0);
 
 		Ok(this)
 	}

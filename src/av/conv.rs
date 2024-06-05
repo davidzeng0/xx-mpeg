@@ -1,6 +1,7 @@
 use std::mem::zeroed;
 
 use super::*;
+use crate::codec::CodecId;
 
 impl From<Rational> for AVRational {
 	fn from(value: Rational) -> Self {
@@ -29,6 +30,20 @@ impl From<AVRational> for Rational {
 impl From<u64> for Channel {
 	fn from(channel: u64) -> Self {
 		Self::from_u64(channel).unwrap_or(Self::Unknown)
+	}
+}
+
+impl From<AVCodecID> for CodecId {
+	fn from(id: AVCodecID) -> Self {
+		match id {
+			AVCodecID::AV_CODEC_ID_AAC => Self::Aac,
+			AVCodecID::AV_CODEC_ID_OPUS => Self::Opus,
+			AVCodecID::AV_CODEC_ID_FLAC => Self::Flac,
+			AVCodecID::AV_CODEC_ID_VORBIS => Self::Vorbis,
+			AVCodecID::AV_CODEC_ID_MP2 => Self::Mp2,
+			AVCodecID::AV_CODEC_ID_MP3 => Self::Mp3,
+			_ => Self::Unknown
+		}
 	}
 }
 
@@ -135,8 +150,7 @@ impl From<AVChannelLayout> for ChannelLayout {
 	fn from(mut value: AVChannelLayout) -> Self {
 		let layout = Self::from(&value);
 
-		/* Safety: FFI call */
-		unsafe { av_channel_layout_uninit(&mut value) };
+		ffi!(av_channel_layout_uninit, &mut value);
 
 		layout
 	}
@@ -167,10 +181,11 @@ impl From<&ChannelLayout> for AVChannelLayout {
 			}
 
 			ChannelLayout::Custom(custom) => {
-				/* Safety: FFI call */
-				result_from_av(unsafe {
-					av_channel_layout_custom_init(&mut layout, custom.len().try_into().unwrap())
-				})
+				ffi!(
+					av_channel_layout_custom_init,
+					&mut layout,
+					custom.len().try_into().unwrap()
+				)
 				.unwrap();
 
 				/* Safety: channel mapping is owned */

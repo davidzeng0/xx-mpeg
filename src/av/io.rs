@@ -87,11 +87,11 @@ unsafe extern "C" fn io_write(_: *mut c_void, _: *const u8, _: i32) -> i32 {
 }
 
 #[asynchronous(sync)]
+#[allow(clippy::unwrap_used)]
 unsafe extern "C" fn io_seek(adapter: *mut c_void, offset: i64, mut whence: i32) -> i64 {
 	let seek = |reader: &mut Reader, error: &mut Errors| async move {
 		if whence & AVSEEK_SIZE != 0 {
 			return match reader.len().await {
-				#[allow(clippy::unwrap_used)]
 				Ok(n) => n.try_into().unwrap(),
 				Err(err) => av_from_error(error.fail(err)) as i64
 			};
@@ -101,7 +101,6 @@ unsafe extern "C" fn io_seek(adapter: *mut c_void, offset: i64, mut whence: i32)
 		whence &= !AVSEEK_FORCE;
 
 		let seek = match whence {
-			#[allow(clippy::unwrap_used)]
 			/* SEEK_SET */
 			0 => SeekFrom::Start(offset.try_into().unwrap()),
 
@@ -115,7 +114,6 @@ unsafe extern "C" fn io_seek(adapter: *mut c_void, offset: i64, mut whence: i32)
 		};
 
 		match reader.seek(seek).await {
-			#[allow(clippy::unwrap_used)]
 			Ok(()) => reader.position().try_into().unwrap(),
 			Err(err) => av_from_error(error.fail(err)) as i64
 		}
@@ -129,8 +127,7 @@ struct Buf(MutPtr<u8>);
 
 impl Drop for Buf {
 	fn drop(&mut self) {
-		/* Safety: guaranteed by constructor */
-		unsafe { av_free(self.0.as_mut_ptr().cast()) };
+		ffi!(av_free, self.0.as_mut_ptr().cast());
 	}
 }
 
@@ -140,13 +137,12 @@ impl IOContext {
 	pub fn new() -> Self {
 		const_assert!(DEFAULT_BUFFER_SIZE < i32::MAX as usize);
 
-		/* Safety: FFI call */
-		let buf = Buf(alloc_with(|| unsafe { av_malloc(DEFAULT_BUFFER_SIZE) }).cast());
+		let buf = Buf(alloc_with(|| ffi!(av_malloc, DEFAULT_BUFFER_SIZE)).cast());
 
 		#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-		/* Safety: FFI call */
-		let ptr = alloc_with(|| unsafe {
-			avio_alloc_context(
+		let ptr = alloc_with(|| {
+			ffi!(
+				avio_alloc_context,
 				buf.0.as_mut_ptr().cast(),
 				DEFAULT_BUFFER_SIZE as i32,
 				0,
@@ -172,8 +168,8 @@ impl Drop for IOContext {
 
 		let mut ptr = self.0.as_mut_ptr();
 
-		/* Safety: we own this pointer */
-		unsafe { avio_context_free(&mut ptr) };
+		/* we own this pointer */
+		ffi!(avio_context_free, &mut ptr);
 	}
 }
 

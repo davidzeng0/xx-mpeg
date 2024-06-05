@@ -58,7 +58,7 @@ impl CodecParserImpl for AacParser {
 		CodecId::Aac
 	}
 
-	fn parse(&self, _: &mut Packet) -> Result<()> {
+	fn parse(&mut self, _: &mut Packet) -> Result<()> {
 		Ok(())
 	}
 }

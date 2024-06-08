@@ -14,10 +14,13 @@ struct AVDemuxer {
 
 #[asynchronous]
 impl AVDemuxer {
-	fn new(reader: Reader, input_format: Option<Ptr<AVInputFormat>>) -> Self {
+	fn new(reader: Reader, input_format: Option<NonNull<AVInputFormat>>) -> Self {
 		let mut format = FormatContext::new();
 
-		format.iformat = input_format.unwrap_or_default().as_ptr();
+		format.iformat = input_format
+			.map(NonNull::as_pointer)
+			.unwrap_or_default()
+			.as_ptr();
 
 		Self { format, reader, packet: AVPacket::new() }
 	}
@@ -171,7 +174,7 @@ pub struct AVFormatClass;
 
 #[asynchronous]
 impl AVFormatClass {
-	pub async fn create(reader: Reader, format: Option<Ptr<AVInputFormat>>) -> Result<Demuxer> {
+	pub async fn create(reader: Reader, format: Option<NonNull<AVInputFormat>>) -> Result<Demuxer> {
 		Ok(Box::new(AVDemuxer::new(reader, format)))
 	}
 

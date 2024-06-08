@@ -5,21 +5,27 @@ use super::*;
 #[errors]
 pub enum EbmlError {
 	#[error("EBML vint first byte cannot be zero")]
+	#[kind = ErrorKind::InvalidData]
 	InvalidVint,
 
 	#[error("EBML id was zero or the maximum value")]
+	#[kind = ErrorKind::InvalidData]
 	InvalidId,
 
 	#[error("Found a duplicate element")]
+	#[kind = ErrorKind::InvalidData]
 	DuplicateElement,
 
 	#[error("Required element is missing")]
+	#[kind = ErrorKind::InvalidData]
 	MissingElement,
 
 	#[error("Expected non zero data")]
+	#[kind = ErrorKind::InvalidData]
 	ExpectedNonZero,
 
 	#[error("Invalid enum variant")]
+	#[kind = ErrorKind::InvalidData]
 	InvalidVariant
 }
 
@@ -100,7 +106,7 @@ impl MasterElemHdr {
 		let id = match read_vint(reader, VIntKind::Id).await {
 			Ok(id) => id,
 			Err(err) => {
-				return if err.kind() == ErrorKind::UnexpectedEof &&
+				return if err == ErrorKind::UnexpectedEof &&
 					reader.position() == position &&
 					!self.element.known_end()
 				{
@@ -121,7 +127,7 @@ impl MasterElemHdr {
 				return Err(FormatError::ReadOverflow.into());
 			}
 
-			let sum = offset.checked_add(size).ok_or(Core::Overflow)?;
+			let sum = offset.checked_add(size).ok_or(ErrorKind::Overflow)?;
 
 			#[allow(clippy::unwrap_used)]
 			Some(NonZeroU64::new(sum).unwrap())

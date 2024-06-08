@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use super::*;
 
 #[errors]
@@ -6,24 +8,29 @@ pub enum FormatError {
 	UnknownFormat,
 
 	#[error("Track not found")]
+	#[kind = ErrorKind::InvalidData]
 	TrackNotFound,
 
-	#[error("{0}")]
-	InvalidData(SimpleMessage),
+	#[error(transparent)]
+	#[kind = ErrorKind::InvalidData]
+	InvalidData(Cow<'static, str>),
 
 	#[error("Codec not found")]
+	#[kind = ErrorKind::NotFound]
 	CodecNotFound,
 
 	#[error("Read overflowed")]
+	#[kind = ErrorKind::InvalidData]
 	ReadOverflow,
 
-	#[error("Invalid seek: requested position {0}, got {1}")]
+	#[error("Invalid seek: requested position {}, got {}", f0, f1)]
 	InvalidSeek(u64, u64),
 
 	#[error("No tracks")]
 	NoTracks,
 
 	#[error("Cannot seek this stream")]
+	#[kind = ErrorKind::NotSeekable]
 	CannotSeek
 }
 

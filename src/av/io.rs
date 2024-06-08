@@ -70,7 +70,7 @@ unsafe extern "C" fn io_read(adapter: *mut c_void, buf: *mut u8, buf_size: i32) 
 			Err(err) => err
 		};
 
-		if err == Core::UnexpectedEof {
+		if err == ErrorKind::UnexpectedEof {
 			return AVERROR_EOF;
 		}
 
@@ -123,7 +123,7 @@ unsafe extern "C" fn io_seek(adapter: *mut c_void, offset: i64, mut whence: i32)
 	unsafe { with_adapter(adapter, seek) }
 }
 
-struct Buf(MutPtr<u8>);
+struct Buf(MutNonNull<u8>);
 
 impl Drop for Buf {
 	fn drop(&mut self) {
@@ -131,7 +131,7 @@ impl Drop for Buf {
 	}
 }
 
-pub struct IOContext(pub MutPtr<AVIOContext>);
+pub struct IOContext(MutNonNull<AVIOContext>);
 
 impl IOContext {
 	pub fn new() -> Self {
@@ -163,10 +163,13 @@ ptr_deref!(IOContext, AVIOContext);
 
 impl Drop for IOContext {
 	fn drop(&mut self) {
-		/* free the buffer */
-		let _ = Buf(MutPtr::from(self.buffer).cast());
+		/* Safety: cannot be null */
+		let buf = unsafe { MutNonNull::new_unchecked(self.buffer.into()) };
 
-		let mut ptr = self.0.as_mut_ptr();
+		/* free the buffer */
+		let _ = Buf(buf.cast());
+
+		let mut ptr = self.as_mut_ptr();
 
 		/* we own this pointer */
 		ffi!(avio_context_free, &mut ptr);

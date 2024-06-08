@@ -2,7 +2,7 @@ use std::io::SeekFrom;
 
 use xx_core::{debug, error};
 use xx_url::{
-	http::{get, Body, HttpRequest},
+	http::{get, Body, HttpRequest, StatusCode},
 	net::connection::IpStrategy
 };
 
@@ -10,8 +10,8 @@ use super::*;
 
 #[errors]
 pub enum HttpError {
-	#[error("{0}")]
-	StatusNotOk(String)
+	#[error("HTTP error {}", f0)]
+	BadStatus(StatusCode)
 }
 
 struct HttpStream {
@@ -47,7 +47,7 @@ impl HttpStream {
 		let response = HttpRequest::run(request).await?;
 
 		if !response.status().is_success() {
-			return Err(HttpError::StatusNotOk(format!("HTTP {}", response.status())).into());
+			return Err(HttpError::BadStatus(response.status()).into());
 		}
 
 		#[allow(clippy::never_loop)]

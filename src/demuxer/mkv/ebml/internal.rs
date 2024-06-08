@@ -1,3 +1,5 @@
+use xx_core::macros::seal_trait;
+
 use super::*;
 
 seal_trait!();

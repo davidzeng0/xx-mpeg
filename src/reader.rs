@@ -82,7 +82,7 @@ impl Reader {
 			let filled = self.stream.fill_amount(spare).await?;
 
 			if unlikely(filled == 0) {
-				return Err(Core::UnexpectedEof.into());
+				return Err(ErrorKind::UnexpectedEof.into());
 			}
 
 			if self.stream.buffer().len() >= space {
@@ -146,7 +146,7 @@ impl Reader {
 				self.stream.discard();
 
 				if self.stream.fill().await? == 0 {
-					return Err(Core::UnexpectedEof.into());
+					return Err(ErrorKind::UnexpectedEof.into());
 				}
 			} else {
 				#[allow(clippy::cast_possible_truncation)]
@@ -322,7 +322,7 @@ impl Reader {
 	pub async fn read_string(&mut self, size: usize) -> Result<String> {
 		let buf = self.read_bytes(size).await?;
 
-		String::from_utf8(buf).map_err(|_| Core::InvalidUtf8.into())
+		String::from_utf8(buf).map_err(|_| ErrorKind::invalid_utf8().into())
 	}
 
 	pub const fn position(&self) -> u64 {

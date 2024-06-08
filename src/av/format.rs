@@ -10,7 +10,7 @@ pub struct ProbeResult {
 	pub long_name: String,
 	pub mime_type: String,
 	pub score: f32,
-	pub format: Ptr<AVInputFormat>
+	pub format: NonNull<AVInputFormat>
 }
 
 pub struct FormatContext(MutPtr<AVFormatContext>, IOContext);
@@ -21,7 +21,7 @@ drop!(FormatContext, avformat_close_input);
 impl FormatContext {
 	pub fn new() -> Self {
 		let mut this = Self(
-			alloc_with(|| ffi!(avformat_alloc_context)),
+			alloc_with(|| ffi!(avformat_alloc_context)).into(),
 			IOContext::new()
 		);
 
@@ -54,7 +54,7 @@ impl FormatContext {
 			#[allow(clippy::cast_possible_truncation)]
 			let score = ffi!(
 				av_probe_input_buffer2,
-				io.0.as_mut_ptr(),
+				io.as_mut_ptr(),
 				&mut format,
 				Ptr::null().as_ptr(),
 				MutPtr::null().as_mut_ptr(),
@@ -65,7 +65,7 @@ impl FormatContext {
 			#[allow(clippy::multiple_unsafe_ops_per_block)]
 			/* Safety: ptr is non-null */
 			let result = unsafe {
-				let format = Ptr::from(format);
+				let format = NonNull::new_unchecked(format.into());
 
 				#[allow(clippy::cast_precision_loss)]
 				ProbeResult {
@@ -91,7 +91,7 @@ impl FormatContext {
 	}
 
 	pub async fn open(&mut self, reader: &mut Reader) -> Result<()> {
-		let mut ptr = self.0.as_mut_ptr();
+		let mut ptr = self.as_mut_ptr();
 		let pb = self.1.as_mut_ptr();
 
 		let read = |_: &mut IOContext| async move {
@@ -106,7 +106,7 @@ impl FormatContext {
 			if let Err(err) = result {
 				/* in case of panic in alloc_with */
 				self.0 = MutPtr::null();
-				self.0 = alloc_with(|| ffi!(avformat_alloc_context));
+				self.0 = alloc_with(|| ffi!(avformat_alloc_context)).into();
 
 				/* Safety: set pb */
 				#[allow(clippy::multiple_unsafe_ops_per_block)]
@@ -129,9 +129,9 @@ impl FormatContext {
 	}
 
 	pub async fn read_frame(&mut self, packet: &mut AVPacket, reader: &mut Reader) -> Result<bool> {
-		let ptr = self.0.as_mut_ptr();
+		let ptr = self.as_mut_ptr();
 		let read = |_: &mut IOContext| async move {
-			ffi!(av_read_frame, ptr, packet.0.as_mut_ptr())?;
+			ffi!(av_read_frame, ptr, packet.as_mut_ptr())?;
 
 			Ok(())
 		};
@@ -160,7 +160,7 @@ impl FormatContext {
 			seek_flags |= AVSEEK_FLAG_ANY;
 		}
 
-		let ptr = self.0.as_mut_ptr();
+		let ptr = self.as_mut_ptr();
 		let read = |_: &mut IOContext| async move {
 			ffi!(
 				avformat_seek_file,

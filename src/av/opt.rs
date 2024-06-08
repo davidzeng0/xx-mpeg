@@ -230,10 +230,10 @@ impl OptionSetter for ChannelLayout {
 	}
 }
 
-pub struct Object<'a>(MutPtr<()>, PhantomData<&'a ()>);
+pub struct Object<'a>(MutNonNull<()>, PhantomData<&'a ()>);
 
 impl Object<'_> {
-	pub const fn from<T: ?Sized>(ptr: MutPtr<T>) -> Self {
+	pub const fn from<T: ?Sized>(ptr: MutNonNull<T>) -> Self {
 		Self(ptr.cast(), PhantomData)
 	}
 

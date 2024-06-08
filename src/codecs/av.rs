@@ -16,7 +16,7 @@ pub struct AVCodec {
 impl AVCodec {
 	#[allow(clippy::unwrap_used)]
 	pub fn new(
-		id: CodecId, codec: Ptr<ffmpeg_sys_next::AVCodec>, params: &mut CodecParams, mode: Mode
+		id: CodecId, codec: NonNull<ffmpeg_sys_next::AVCodec>, params: &mut CodecParams, mode: Mode
 	) -> Result<Self> {
 		let mut context = CodecContext::new(codec);
 

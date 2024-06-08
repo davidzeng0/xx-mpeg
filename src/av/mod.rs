@@ -117,28 +117,12 @@ macro_rules! ffi_optional {
 
 use ffi_optional;
 
-fn alloc_with<T, F>(alloc: F) -> MutPtr<T>
+fn alloc_with<T, F>(alloc: F) -> MutNonNull<T>
 where
 	F: FnOnce() -> *mut T
 {
-	let ptr = MutPtr::from(alloc());
-
-	assert!(!ptr.is_null(), "Memory allocation failed");
-
-	ptr
-}
-
-fn find_with<T, F>(find: F) -> Option<Ptr<T>>
-where
-	F: FnOnce() -> *const T
-{
-	let ptr = Ptr::from(find());
-
-	if !ptr.is_null() {
-		Some(ptr)
-	} else {
-		None
-	}
+	#[allow(clippy::expect_used)]
+	MutNonNull::new(alloc().into()).expect("Memory allocation failed")
 }
 
 unsafe fn get_av_class(context: MutPtr<()>) -> MutPtr<AVClass> {

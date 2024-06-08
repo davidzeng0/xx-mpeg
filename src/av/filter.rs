@@ -6,17 +6,17 @@ pub struct Filters;
 
 impl Filters {
 	#[allow(dead_code)]
-	pub fn find_by_name(name: &str) -> Option<Ptr<AVFilter>> {
+	pub fn find_by_name(name: &str) -> Option<NonNull<AVFilter>> {
 		Self::find_by_name_c(&into_cstr(name))
 	}
 
-	pub fn find_by_name_c(name: &CStr) -> Option<Ptr<AVFilter>> {
-		find_with(|| ffi!(avfilter_get_by_name, name.as_ptr()))
+	pub fn find_by_name_c(name: &CStr) -> Option<NonNull<AVFilter>> {
+		NonNull::new(ffi!(avfilter_get_by_name, name.as_ptr()).into())
 	}
 }
 
 #[allow(missing_copy_implementations)]
-pub struct FilterContext(MutPtr<AVFilterContext>);
+pub struct FilterContext(MutNonNull<AVFilterContext>);
 
 ptr_deref!(FilterContext, AVFilterContext);
 
@@ -24,7 +24,7 @@ impl FilterContext {
 	pub fn init(&mut self) -> Result<()> {
 		ffi!(
 			avfilter_init_dict,
-			self.0.as_mut_ptr(),
+			self.as_mut_ptr(),
 			MutPtr::null().as_mut_ptr()
 		)?;
 
@@ -39,9 +39,9 @@ impl FilterContext {
 	pub fn link(&mut self, pad: u32, dst: &mut Self, dst_pad: u32) -> Result<()> {
 		ffi!(
 			avfilter_link,
-			self.0.as_mut_ptr(),
+			self.as_mut_ptr(),
 			pad,
-			dst.0.as_mut_ptr(),
+			dst.as_mut_ptr(),
 			dst_pad
 		)?;
 
@@ -58,19 +58,21 @@ av_wrapper!(
 
 impl FilterGraph {
 	#[allow(dead_code)]
-	pub fn create_filter(&mut self, filter: Ptr<AVFilter>, name: Option<&str>) -> FilterContext {
+	pub fn create_filter(
+		&mut self, filter: NonNull<AVFilter>, name: Option<&str>
+	) -> FilterContext {
 		let name = name.map(into_cstr);
 
 		self.create_filter_c(filter, name.as_ref().map(AsRef::as_ref))
 	}
 
-	pub fn create_filter_c(&mut self, filter: Ptr<AVFilter>, name: Option<&CStr>) -> FilterContext {
-		assert!(!filter.is_null(), "Filter is null");
-
+	pub fn create_filter_c(
+		&mut self, filter: NonNull<AVFilter>, name: Option<&CStr>
+	) -> FilterContext {
 		let ptr = alloc_with(|| {
 			ffi!(
 				avfilter_graph_alloc_filter,
-				self.0.as_mut_ptr(),
+				self.as_mut_ptr(),
 				filter.as_ptr(),
 				name.map_or(Ptr::null().as_ptr(), CStr::as_ptr)
 			)
@@ -82,7 +84,7 @@ impl FilterGraph {
 	pub fn config(&mut self) -> Result<()> {
 		ffi!(
 			avfilter_graph_config,
-			self.0.as_mut_ptr(),
+			self.as_mut_ptr(),
 			MutPtr::null().as_mut_ptr()
 		)?;
 

@@ -72,7 +72,7 @@ macro_rules! drop {
 	($struct:ident, $free:ident) => {
 		impl Drop for $struct {
 			fn drop(&mut self) {
-				let mut ptr = self.0.as_mut_ptr();
+				let mut ptr = self.as_mut_ptr();
 
 				/* we own this pointer */
 				ffi!($free, &mut ptr);
@@ -85,7 +85,7 @@ pub(super) use drop;
 
 macro_rules! av_wrapper {
 	($struct:ident, $av:path, $free:ident) => {
-		pub struct $struct(pub(super) MutPtr<$av>);
+		pub struct $struct(MutNonNull<$av>);
 
 		ptr_deref!($struct, $av);
 		drop!($struct, $free);

@@ -117,8 +117,8 @@ impl BufferSrc {
 	pub unsafe fn send_frame(&mut self, frame: AVFrame) -> Result<()> {
 		ffi!(
 			av_buffersrc_add_frame,
-			self.0.as_mut_ptr(),
-			frame.0.as_mut_ptr()
+			self.as_mut_ptr(),
+			frame.as_mut_ptr()
 		)?;
 
 		drop(frame);
@@ -129,7 +129,7 @@ impl BufferSrc {
 	pub fn drain(&mut self) -> Result<()> {
 		ffi!(
 			av_buffersrc_add_frame,
-			self.0.as_mut_ptr(),
+			self.as_mut_ptr(),
 			MutPtr::null().as_mut_ptr()
 		)?;
 
@@ -145,17 +145,13 @@ impl BufferSink {
 	pub unsafe fn receive_frame(&mut self, frame: &mut AVFrame) -> Result<bool> {
 		ffi_optional!(
 			av_buffersink_get_frame,
-			self.0.as_mut_ptr(),
-			frame.0.as_mut_ptr()
+			self.as_mut_ptr(),
+			frame.as_mut_ptr()
 		)
 	}
 
 	pub fn set_frame_size(&mut self, frame_size: u32) {
-		ffi!(
-			av_buffersink_set_frame_size,
-			self.0.as_mut_ptr(),
-			frame_size
-		);
+		ffi!(av_buffersink_set_frame_size, self.as_mut_ptr(), frame_size);
 	}
 }
 

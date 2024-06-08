@@ -79,7 +79,7 @@ pub(super) fn result_from_av(code: i32) -> Result<i32> {
 		AVERROR_HTTP_NOT_FOUND => AVError::HttpNotFound.into(),
 		AVERROR_HTTP_OTHER_4XX => AVError::HttpOther4xx.into(),
 		AVERROR_HTTP_SERVER_ERROR => AVError::HttpServerError.into(),
-		code => OsError::from_raw(AVUNERROR(code)).into()
+		code => OsError::from(AVUNERROR(code)).into()
 	})
 }
 

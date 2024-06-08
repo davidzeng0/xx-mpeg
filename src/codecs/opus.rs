@@ -1,3 +1,5 @@
+use std::result;
+
 use super::{av::*, *};
 
 codec_pair!(CodecId::Opus, Some("libopus"), AV_CODEC_ID_OPUS, Opus);
@@ -7,12 +9,13 @@ pub const SAMPLE_RATE: u32 = 48_000;
 #[errors]
 pub enum OpusError {
 	#[error("Invalid opus packet")]
+	#[kind = ErrorKind::InvalidData]
 	InvalidPacket
 }
 
-pub fn get_nb_frames(packet: &[u8]) -> Result<u32> {
+pub fn get_nb_frames(packet: &[u8]) -> result::Result<u32, OpusError> {
 	let [config, rest @ ..] = packet else {
-		return Err(OpusError::InvalidPacket.into());
+		return Err(OpusError::InvalidPacket);
 	};
 
 	#[allow(clippy::unreachable)]
@@ -49,12 +52,12 @@ pub const fn get_samples_per_frame(config: u8, sample_rate: u32) -> u32 {
 }
 
 #[allow(clippy::arithmetic_side_effects)]
-pub fn get_nb_samples(packet: &[u8], sample_rate: u32) -> Result<u32> {
+pub fn get_nb_samples(packet: &[u8], sample_rate: u32) -> result::Result<u32, OpusError> {
 	let frames = get_nb_frames(packet)?;
 	let samples = frames * get_samples_per_frame(packet[0], sample_rate);
 
 	if samples * 25 > sample_rate * 3 {
-		return Err(OpusError::InvalidPacket.into());
+		return Err(OpusError::InvalidPacket);
 	}
 
 	Ok(samples)

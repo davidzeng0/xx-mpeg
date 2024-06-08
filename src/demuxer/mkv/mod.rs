@@ -24,19 +24,24 @@ use spec::{
 
 #[errors]
 enum MatroskaError {
-	#[error("Unsupported EBML version {0}")]
+	#[error("Unsupported EBML version {}", f0)]
+	#[kind = ErrorKind::Unimplemented]
 	UnknownEbmlVersion(u64),
 
-	#[error("EBML id length too long ({0} bytes)")]
+	#[error("EBML id length too large ({} bytes)", f0)]
+	#[kind = ErrorKind::Unsupported]
 	IdTooLong(u64),
 
-	#[error("EBML size length too long ({0} bytes)")]
+	#[error("EBML size length too large ({} bytes)", f0)]
+	#[kind = ErrorKind::Unsupported]
 	SizeTooLong(u64),
 
-	#[error("Unknown doc type {0}")]
+	#[error("Unknown doc type {}", f0)]
+	#[kind = ErrorKind::Unimplemented]
 	UnknownDocType(String),
 
-	#[error("Unknown doc type version {0}")]
+	#[error("Unknown doc type version {}", f0)]
+	#[kind = ErrorKind::Unimplemented]
 	UnknownDocTypeVersion(u64)
 }
 
@@ -303,7 +308,7 @@ impl Matroska {
 					let timecode = self
 						.cluster_timecode
 						.checked_add(header.timecode as u64)
-						.ok_or(Core::Overflow)?;
+						.ok_or(ErrorKind::Overflow)?;
 
 					self.block = Some(Block {
 						track_id: header.track_id.0,
@@ -410,7 +415,7 @@ fn get_track_codec_params(track: &tracks::Track) -> Result<CodecParams> {
 		if result as f64 == value {
 			Ok(result)
 		} else {
-			Err(Core::Overflow.into())
+			Err(ErrorKind::Overflow.into())
 		}
 	}
 
@@ -418,7 +423,7 @@ fn get_track_codec_params(track: &tracks::Track) -> Result<CodecParams> {
 	where
 		T: TryFrom<u64>
 	{
-		T::try_from(value).map_err(|_| Core::Overflow.into())
+		T::try_from(value).map_err(|_| ErrorKind::Overflow.into())
 	}
 
 	let mut params = CodecParams::default();
@@ -516,7 +521,7 @@ impl DemuxerImpl for Matroska {
 		let offset = self
 			.segment_offset
 			.checked_add(cluster_position.unwrap_or(0))
-			.ok_or(Core::Overflow)?;
+			.ok_or(ErrorKind::Overflow)?;
 
 		self.reader.seek(SeekFrom::Start(offset)).await?;
 
@@ -550,7 +555,7 @@ impl DemuxerImpl for Matroska {
 
 		packet.data = self
 			.reader
-			.read_bytes(block.size.try_into().map_err(|_| Core::Overflow)?)
+			.read_bytes(block.size.try_into().map_err(|_| ErrorKind::Overflow)?)
 			.await?;
 
 		Ok(true)

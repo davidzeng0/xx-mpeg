@@ -1,6 +1,6 @@
 #![allow(clippy::module_name_repetitions)]
 
-use xx_core::paste::paste;
+use xx_core::{macros::wrapper_functions, paste::paste};
 
 use super::{codecs::*, *};
 

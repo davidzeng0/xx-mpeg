@@ -2,11 +2,11 @@
 
 use super::*;
 
-pub struct ParserContext(MutPtr<AVCodecParserContext>);
+pub struct ParserContext(MutNonNull<AVCodecParserContext>);
 
 impl Drop for ParserContext {
 	fn drop(&mut self) {
-		ffi!(av_parser_close, self.0.as_mut_ptr());
+		ffi!(av_parser_close, self.as_mut_ptr());
 	}
 }
 
@@ -21,13 +21,7 @@ impl ParserContext {
 	}
 
 	pub fn try_new(codec: AVCodecID) -> Option<Self> {
-		let ptr = MutPtr::from(ffi!(av_parser_init, codec as i32));
-
-		if !ptr.is_null() {
-			Some(Self(ptr))
-		} else {
-			None
-		}
+		MutNonNull::new(ffi!(av_parser_init, codec as i32).into()).map(Self)
 	}
 
 	#[allow(clippy::needless_pass_by_ref_mut)]

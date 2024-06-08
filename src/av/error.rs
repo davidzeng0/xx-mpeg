@@ -5,15 +5,18 @@ use super::*;
 #[errors]
 pub enum AVError {
 	#[error("Bitstream filter not found")]
+	#[kind = ErrorKind::NotFound]
 	BitstreamFilterNotFound,
 
 	#[error("AV internal bug")]
 	InternalBug,
 
 	#[error("Buffer too small")]
+	#[kind = ErrorKind::InvalidInput]
 	BufferTooSmall,
 
 	#[error("Demuxer not found")]
+	#[kind = ErrorKind::InvalidData]
 	DemuxerNotFound,
 
 	#[error("End of file")]
@@ -26,24 +29,31 @@ pub enum AVError {
 	ExternalError,
 
 	#[error("Filter not found")]
+	#[kind = ErrorKind::NotFound]
 	FilterNotFound,
 
 	#[error("Invalid data found while processing input")]
+	#[kind = ErrorKind::InvalidData]
 	InvalidData,
 
 	#[error("Muxer not found")]
+	#[kind = ErrorKind::NotFound]
 	MuxerNotFound,
 
 	#[error("Option not found")]
+	#[kind = ErrorKind::NotFound]
 	OptionNotFound,
 
 	#[error("Not implemented")]
+	#[kind = ErrorKind::Unimplemented]
 	NotImplemented,
 
 	#[error("Protocol not found")]
+	#[kind = ErrorKind::NotFound]
 	ProtocolNotFound,
 
 	#[error("Stream not found")]
+	#[kind = ErrorKind::NotFound]
 	StreamNotFound,
 
 	#[error("Unknown error or error in external library")]

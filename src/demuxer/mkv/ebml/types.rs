@@ -153,7 +153,7 @@ impl Element for String {
 	{
 		#[allow(clippy::unwrap_used)]
 		reader
-			.read_string(header.size.try_into().map_err(|_| Core::Overflow)?)
+			.read_string(header.size.try_into().map_err(|_| ErrorKind::Overflow)?)
 			.await
 	}
 }
@@ -171,7 +171,7 @@ impl Element for Bytes {
 		#[allow(clippy::unwrap_used)]
 		Ok(Self(
 			reader
-				.read_bytes(header.size.try_into().map_err(|_| Core::Overflow)?)
+				.read_bytes(header.size.try_into().map_err(|_| ErrorKind::Overflow)?)
 				.await?
 		))
 	}

@@ -64,15 +64,10 @@ impl AudioFilterGraph {
 	pub fn receive_frame(&mut self) -> Result<Option<Frame>> {
 		let mut frame = Frame::new();
 
-		Ok(match self.0.receive_frame(&mut frame.data)? {
-			true => {
-				frame.get_fields_from_inner(Some(MediaType::Audio));
-
-				Some(frame)
-			}
-
-			false => None
-		})
+		Ok(self.0.receive_frame(&mut frame.data)?.then(|| {
+			frame.get_fields_from_inner(Some(MediaType::Audio));
+			frame
+		}))
 	}
 
 	pub fn set_frame_size(&mut self, frame_size: u32) {

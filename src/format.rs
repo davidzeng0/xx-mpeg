@@ -185,14 +185,13 @@ impl Format {
 		loop {
 			let mut packet = Packet::new();
 
-			match self
+			if !self
 				.demuxer
 				.read_packet(&mut self.data, &mut packet)
 				.await?
 			{
-				true => (),
-				false => return Ok(None)
-			};
+				return Ok(None);
+			}
 
 			let track = &mut self.data.tracks[packet.track_index as usize];
 

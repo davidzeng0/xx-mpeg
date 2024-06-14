@@ -141,19 +141,13 @@ impl Codec {
 	pub fn receive_packet(&mut self) -> Result<Option<Packet>> {
 		let mut packet = Packet::new();
 
-		Ok(match self.0.receive_packet(&mut packet)? {
-			true => Some(packet),
-			false => None
-		})
+		Ok(self.0.receive_packet(&mut packet)?.then_some(packet))
 	}
 
 	pub fn receive_frame(&mut self) -> Result<Option<Frame>> {
 		let mut frame = Frame::new();
 
-		Ok(match self.0.receive_frame(&mut frame)? {
-			true => Some(frame),
-			false => None
-		})
+		Ok(self.0.receive_frame(&mut frame)?.then_some(frame))
 	}
 }
 

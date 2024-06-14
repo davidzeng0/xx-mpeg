@@ -166,6 +166,7 @@ fn generate_struct(
 
 	quote! {
 		#(#attrs)*
+		#[allow(clippy::option_option)]
 		#vis struct #name #fields
 	}
 }

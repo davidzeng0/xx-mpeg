@@ -35,7 +35,6 @@ jobs:
           fi
 
           export FFMPEG_BUILD=$(echo "$FFMPEG_VERSION" | sed "s/%ARCH%/$FFMPEG_ARCH/g")
-
           curl -L -O "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$FFMPEG_BUILD.tar.xz" &
           rustup default nightly && rustup component add clippy &
 

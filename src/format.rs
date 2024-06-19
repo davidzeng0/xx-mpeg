@@ -206,7 +206,7 @@ impl Format {
 					Some(parser) => parser,
 					None => track
 						.parser
-						.insert(CodecParser::new(&mut track.codec_params)?)
+						.insert(CodecParser::new(track.parse, &mut track.codec_params)?)
 				};
 
 				parser.parse(&mut packet)?;

@@ -167,14 +167,14 @@ impl CodecParser {
 		pub fn parse(&mut self, packet: &mut Packet) -> Result<()>;
 	}
 
-	pub fn new(params: &mut CodecParams) -> Result<Self> {
+	pub fn new(parse: CodecParse, params: &mut CodecParams) -> Result<Self> {
 		let codec = match params.id {
-			CodecId::Aac => AacParser::new(params)?,
-			CodecId::Opus => OpusParser::new(params)?,
-			CodecId::Flac => FlacParser::new(params)?,
-			CodecId::Vorbis => VorbisParser::new(params)?,
-			CodecId::Mp2 => Mp2Parser::new(params)?,
-			CodecId::Mp3 => Mp3Parser::new(params)?,
+			CodecId::Aac => AacParser::new(parse, params)?,
+			CodecId::Opus => OpusParser::new(parse, params)?,
+			CodecId::Flac => FlacParser::new(parse, params)?,
+			CodecId::Vorbis => VorbisParser::new(parse, params)?,
+			CodecId::Mp2 => Mp2Parser::new(parse, params)?,
+			CodecId::Mp3 => Mp3Parser::new(parse, params)?,
 			_ => return Err(FormatError::CodecNotFound.into())
 		};
 

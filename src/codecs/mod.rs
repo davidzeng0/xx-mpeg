@@ -71,16 +71,21 @@ macro_rules! parser_pair {
 			pub struct [<$name Parser>];
 
 			impl [<$name Parser>] {
-				pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
+				pub fn new(parse: CodecParse, params: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
+					use xx_core::pointer::*;
 					use crate::av::*;
 
-					let parser = ParserContext::try_new($av_codec);
+					fn get_codec_parser() -> Option<(NonNull<ffmpeg_sys_next::AVCodec>, ParserContext)> {
+						let codec = Codecs::find_decoder($av_codec)?;
+						let parser = ParserContext::try_new($av_codec)?;
 
-					if let Some(parser) = parser {
-						Ok(Box::new(AVCodecParser::new($codec_id, parser, params)))
-					} else {
-						Err(FormatError::CodecNotFound.into())
+						Some((codec, parser))
 					}
+
+					let (codec, parser) = get_codec_parser().ok_or(FormatError::CodecNotFound)?;
+					let parser = AVCodecParser::new($codec_id, codec, parser, parse, params)?;
+
+					Ok(Box::new(parser))
 				}
 			}
 		}

@@ -13,79 +13,85 @@ pub struct AVCodec {
 	frame: AVFrame
 }
 
+#[allow(clippy::unwrap_used)]
+fn open_codec(
+	codec: NonNull<ffmpeg_sys_next::AVCodec>, params: &mut CodecParams, mode: Mode
+) -> Result<CodecContext> {
+	let mut context = CodecContext::new(codec);
+
+	params.config.reserve_exact(INPUT_BUFFER_PADDING);
+
+	for spare in params
+		.config
+		.spare_capacity_mut()
+		.iter_mut()
+		.take(INPUT_BUFFER_PADDING)
+	{
+		spare.write(0);
+	}
+
+	context.time_base = params.time_base.into();
+	context.pkt_timebase = params.packet_time_base.into();
+	context.bit_rate = params.bit_rate as i64;
+	context.bits_per_raw_sample = params.bit_depth as i32;
+	context.compression_level = params.compression_level as i32;
+	context.delay = params.delay.try_into().unwrap();
+	context.seek_preroll = params.seek_preroll.try_into().unwrap();
+
+	context.sample_rate = params.sample_rate.try_into().unwrap();
+	context.ch_layout = (&params.ch_layout).into();
+	context.frame_size = params.frame_size.try_into().unwrap();
+	context.sample_fmt = params.sample_format.into();
+	context.request_sample_fmt = context.sample_fmt;
+
+	context.width = params.width.try_into().unwrap();
+	context.height = params.height.try_into().unwrap();
+	context.sample_aspect_ratio = params.sample_aspect_ratio.into();
+	context.frame_num = params.frame_size.into();
+	context.pix_fmt = params.pixel_format.into();
+
+	if mode == Mode::Decode {
+		context.extradata_size = params.config.len().try_into().unwrap();
+		context.extradata = params.config.as_mut_ptr();
+	}
+
+	let result = context.open();
+
+	if mode == Mode::Decode {
+		context.extradata = MutPtr::null().as_mut_ptr();
+		context.extradata_size = 0;
+	}
+
+	result?;
+
+	params.time_base = context.time_base.into();
+	params.bit_rate = context.bit_rate.try_into().unwrap();
+	params.bit_depth = context.bits_per_raw_sample.try_into().unwrap();
+	params.compression_level = context.compression_level.try_into().unwrap();
+	params.delay = context.delay.try_into().unwrap();
+	params.seek_preroll = context.seek_preroll.try_into().unwrap();
+
+	params.sample_rate = context.sample_rate.try_into().unwrap();
+	params.ch_layout = context.ch_layout.into();
+	params.frame_size = context.frame_size.try_into().unwrap();
+	params.sample_format = context.sample_fmt.into();
+
+	params.width = context.width.try_into().unwrap();
+	params.height = context.height.try_into().unwrap();
+	params.sample_aspect_ratio = context.sample_aspect_ratio.into();
+	params.framerate = context.framerate.into();
+	params.pixel_format = context.pix_fmt.into();
+
+	Ok(context)
+}
+
 impl AVCodec {
-	#[allow(clippy::unwrap_used)]
 	pub fn new(
 		id: CodecId, codec: NonNull<ffmpeg_sys_next::AVCodec>, params: &mut CodecParams, mode: Mode
 	) -> Result<Self> {
-		let mut context = CodecContext::new(codec);
-
-		params.config.reserve_exact(INPUT_BUFFER_PADDING);
-
-		for spare in params
-			.config
-			.spare_capacity_mut()
-			.iter_mut()
-			.take(INPUT_BUFFER_PADDING)
-		{
-			spare.write(0);
-		}
-
-		context.time_base = params.time_base.into();
-		context.pkt_timebase = params.packet_time_base.into();
-		context.bit_rate = params.bit_rate as i64;
-		context.bits_per_raw_sample = params.bit_depth as i32;
-		context.compression_level = params.compression_level as i32;
-		context.delay = params.delay.try_into().unwrap();
-		context.seek_preroll = params.seek_preroll.try_into().unwrap();
-
-		context.sample_rate = params.sample_rate.try_into().unwrap();
-		context.ch_layout = (&params.ch_layout).into();
-		context.frame_size = params.frame_size.try_into().unwrap();
-		context.sample_fmt = params.sample_format.into();
-		context.request_sample_fmt = context.sample_fmt;
-
-		context.width = params.width.try_into().unwrap();
-		context.height = params.height.try_into().unwrap();
-		context.sample_aspect_ratio = params.sample_aspect_ratio.into();
-		context.frame_num = params.frame_size.into();
-		context.pix_fmt = params.pixel_format.into();
-
-		if mode == Mode::Decode {
-			context.extradata_size = params.config.len().try_into().unwrap();
-			context.extradata = params.config.as_mut_ptr();
-		}
-
-		let result = context.open();
-
-		if mode == Mode::Decode {
-			context.extradata = MutPtr::null().as_mut_ptr();
-			context.extradata_size = 0;
-		}
-
-		result?;
-
-		params.time_base = context.time_base.into();
-		params.bit_rate = context.bit_rate.try_into().unwrap();
-		params.bit_depth = context.bits_per_raw_sample.try_into().unwrap();
-		params.compression_level = context.compression_level.try_into().unwrap();
-		params.delay = context.delay.try_into().unwrap();
-		params.seek_preroll = context.seek_preroll.try_into().unwrap();
-
-		params.sample_rate = context.sample_rate.try_into().unwrap();
-		params.ch_layout = context.ch_layout.into();
-		params.frame_size = context.frame_size.try_into().unwrap();
-		params.sample_format = context.sample_fmt.into();
-
-		params.width = context.width.try_into().unwrap();
-		params.height = context.height.try_into().unwrap();
-		params.sample_aspect_ratio = context.sample_aspect_ratio.into();
-		params.framerate = context.framerate.into();
-		params.pixel_format = context.pix_fmt.into();
-
 		Ok(Self {
 			id,
-			context,
+			context: open_codec(codec, params, mode)?,
 			packet: AVPacket::new(),
 			frame: AVFrame::new()
 		})
@@ -168,12 +174,22 @@ impl CodecImpl for AVCodec {
 
 pub struct AVCodecParser {
 	id: CodecId,
+	codec: CodecContext,
 	parser: ParserContext
 }
 
 impl AVCodecParser {
-	pub fn new(id: CodecId, parser: ParserContext, _: &mut CodecParams) -> Self {
-		Self { id, parser }
+	pub fn new(
+		id: CodecId, codec: NonNull<ffmpeg_sys_next::AVCodec>, mut parser: ParserContext,
+		parse: CodecParse, params: &mut CodecParams
+	) -> Result<Self> {
+		let codec = open_codec(codec, params, Mode::Decode)?;
+
+		if parse == CodecParse::Header {
+			parser.flags |= PARSER_FLAG_COMPLETE_FRAMES;
+		}
+
+		Ok(Self { id, codec, parser })
 	}
 }
 
@@ -183,6 +199,21 @@ impl CodecParserImpl for AVCodecParser {
 	}
 
 	fn parse(&mut self, packet: &mut Packet) -> Result<()> {
-		self.parser.parse(&packet.data)
+		let mut duration = packet.duration;
+
+		if !self.parser.parse(
+			&mut self.codec,
+			&packet.data,
+			packet.timestamp,
+			packet.timestamp,
+			-1,
+			&mut duration
+		) {
+			return Ok(());
+		}
+
+		packet.duration = duration;
+
+		Ok(())
 	}
 }

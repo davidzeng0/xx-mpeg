@@ -20,10 +20,9 @@ drop!(FormatContext, avformat_close_input);
 
 impl FormatContext {
 	pub fn new() -> Self {
-		let mut this = Self(
-			alloc_with(|| ffi!(avformat_alloc_context)).into(),
-			IOContext::new()
-		);
+		let context = IOContext::new();
+
+		let mut this = Self(alloc_with(|| ffi!(avformat_alloc_context)).into(), context);
 
 		this.pb = this.1.as_mut_ptr();
 		this.flags |= AVFMT_FLAG_CUSTOM_IO;

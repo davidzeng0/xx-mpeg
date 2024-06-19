@@ -66,9 +66,9 @@ pub fn get_nb_samples(packet: &[u8], sample_rate: u32) -> result::Result<u32, Op
 pub struct OpusParser;
 
 impl OpusParser {
-	pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
+	pub fn new(_: CodecParse, params: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
 		params.sample_rate = SAMPLE_RATE;
-		params.packet_time_base = Rational::inverse(SAMPLE_RATE);
+		params.change_time_base(Rational::inverse(SAMPLE_RATE));
 
 		Ok(Box::new(Self))
 	}

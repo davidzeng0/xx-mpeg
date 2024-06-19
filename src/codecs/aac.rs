@@ -16,6 +16,13 @@ const SAMPLE_RATE_TABLE: &[u32] = &[
 
 const CHANNEL_TABLE: &[u16] = &[0, 1, 2, 3, 4, 5, 6, 8, 0, 0, 0, 7, 8, 0, 8, 0];
 
+#[allow(unreachable_pub)]
+mod internal {
+	use super::*;
+
+	parser_pair!(CodecId::Aac, AV_CODEC_ID_AAC, Aac);
+}
+
 pub struct AacParser;
 
 impl AacParser {
@@ -45,20 +52,10 @@ impl AacParser {
 		Ok(())
 	}
 
-	pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
+	pub fn new(parse: CodecParse, params: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
 		Self::parse_config(params)
 			.map_err(|_| FormatError::InvalidData("Invalid aac config".into()))?;
 
-		Ok(Box::new(Self))
-	}
-}
-
-impl CodecParserImpl for AacParser {
-	fn id(&self) -> CodecId {
-		CodecId::Aac
-	}
-
-	fn parse(&mut self, _: &mut Packet) -> Result<()> {
-		Ok(())
+		internal::AacParser::new(parse, params)
 	}
 }

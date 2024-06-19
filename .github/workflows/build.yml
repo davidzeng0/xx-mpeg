@@ -9,6 +9,7 @@ on:
 env:
   VALGRINDFLAGS: --show-reachable=no --show-possibly-lost=no
   RUST_BACKTRACE: 1
+  FFMPEG_VERSION: ffmpeg-n7.0-latest-linux%ARCH%-lgpl-shared-7.0
 
 jobs:
   rust:

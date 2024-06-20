@@ -1,26 +1,26 @@
-use std::{
-	io::SeekFrom,
-	mem::size_of,
-	ops::{Deref, DerefMut}
-};
+use std::io::SeekFrom;
+use std::mem::size_of;
+use std::ops::{Deref, DerefMut};
 
 use num_traits::FromPrimitive;
-use xx_core::{error::*, impls::AsyncFnMut, trace, warn};
+use xx_core::error::*;
+use xx_core::impls::AsyncFnMut;
+use xx_core::{trace, warn};
 
 use super::*;
 
 mod ebml;
 mod spec;
 
-use ebml::{parse::*, spec::*, *};
-use spec::{
-	cluster::*,
-	cues::*,
-	seek_head::*,
-	segment_info::*,
-	tracks::{TrackType, Tracks},
-	*
-};
+use ebml::parse::*;
+use ebml::spec::*;
+use ebml::*;
+use spec::cluster::*;
+use spec::cues::*;
+use spec::seek_head::*;
+use spec::segment_info::*;
+use spec::tracks::{TrackType, Tracks};
+use spec::*;
 
 #[errors]
 enum MatroskaError {

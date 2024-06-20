@@ -1,6 +1,7 @@
 use std::result;
 
-use super::{av::*, *};
+use super::av::*;
+use super::*;
 
 codec_pair!(CodecId::Opus, Some("libopus"), AV_CODEC_ID_OPUS, Opus);
 

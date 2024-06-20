@@ -1,7 +1,5 @@
-use std::{
-	fmt::{Arguments, Display},
-	io::{Cursor, Write}
-};
+use std::fmt::{Arguments, Display};
+use std::io::{Cursor, Write};
 
 use super::*;
 

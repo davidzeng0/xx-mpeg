@@ -1,8 +1,10 @@
 #![allow(clippy::module_name_repetitions)]
 
-use xx_core::{macros::wrapper_functions, paste::paste};
+use xx_core::macros::wrapper_functions;
+use xx_core::paste::paste;
 
-use super::{codecs::*, *};
+use super::codecs::*;
+use super::*;
 
 pub type MediaType = av::MediaType;
 pub type Discard = av::Discard;

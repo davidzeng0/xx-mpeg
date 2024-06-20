@@ -1,35 +1,34 @@
 #![allow(unreachable_pub)]
 
-use std::{
-	any::Any,
-	ffi::{c_char, c_void, CStr, CString},
-	io::{Cursor, SeekFrom, Write},
-	mem::{forget, transmute, zeroed},
-	ops::{Deref, DerefMut},
-	panic::*,
-	str::from_utf8
-};
+use std::any::Any;
+use std::ffi::{c_char, c_void, CStr, CString};
+use std::io::{Cursor, SeekFrom, Write};
+use std::mem::{forget, transmute, zeroed};
+use std::ops::{Deref, DerefMut};
+use std::panic::*;
+use std::str::from_utf8;
 
 use enumflags2::*;
 pub use ffmpeg_sys_next::AVCodecID;
 use ffmpeg_sys_next::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
-use xx_core::{
-	async_std::io::*,
-	coroutines::Context,
-	ctor::ctor,
-	error::*,
-	impls::AsyncFnOnce,
-	log::{internal::*, Level},
-	opt::hint::*,
-	os::error::OsError,
-	paste::paste,
-	pointer::*
-};
+use xx_core::async_std::io::*;
+use xx_core::coroutines::Context;
+use xx_core::ctor::ctor;
+use xx_core::error::*;
+use xx_core::impls::AsyncFnOnce;
+use xx_core::log::internal::*;
+use xx_core::log::Level;
+use xx_core::opt::hint::*;
+use xx_core::os::error::OsError;
+use xx_core::paste::paste;
+use xx_core::pointer::*;
 use xx_pulse::*;
 
-use crate::{format::*, reader::*, FormatError, Rational};
+use crate::format::*;
+use crate::reader::*;
+use crate::{FormatError, Rational};
 
 pub const UNKNOWN_TIMESTAMP: i64 = AV_NOPTS_VALUE;
 pub const INPUT_BUFFER_PADDING: usize = AV_INPUT_BUFFER_PADDING_SIZE as usize;

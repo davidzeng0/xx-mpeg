@@ -1,4 +1,5 @@
-use std::{marker::PhantomData, mem::size_of_val};
+use std::marker::PhantomData;
+use std::mem::size_of_val;
 
 use super::*;
 

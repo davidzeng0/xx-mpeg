@@ -2,7 +2,8 @@ use std::result;
 
 use bitreader::{BitReader, BitReaderError};
 
-use super::{av::*, *};
+use super::av::*;
+use super::*;
 
 codec_pair!(CodecId::Aac, None, AV_CODEC_ID_AAC, Aac);
 

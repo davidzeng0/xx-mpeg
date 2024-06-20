@@ -3,7 +3,8 @@
 use xx_core::opt::hint::*;
 
 use super::*;
-use crate::{macros::ebml_define, Reader};
+use crate::macros::ebml_define;
+use crate::Reader;
 
 pub mod internal;
 pub mod parse;

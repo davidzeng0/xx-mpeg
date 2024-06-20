@@ -1,4 +1,5 @@
-use xx_core::{runtime::catch_unwind_safe, static_assertions::const_assert};
+use xx_core::runtime::catch_unwind_safe;
+use xx_core::static_assertions::const_assert;
 
 use super::*;
 

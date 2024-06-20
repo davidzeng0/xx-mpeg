@@ -1,6 +1,7 @@
 #![allow(unreachable_pub)]
 
-use xx_core::{error::*, pointer::*};
+use xx_core::error::*;
+use xx_core::pointer::*;
 
 use super::*;
 pub use crate::av::AVCodecID::*;

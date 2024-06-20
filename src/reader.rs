@@ -1,17 +1,18 @@
 #![allow(unreachable_pub)]
 
-use std::{io::SeekFrom, mem::size_of};
+use std::io::SeekFrom;
+use std::mem::size_of;
 
-use xx_core::{
-	async_std::io::{typed::BufReadTyped, *},
-	impls::{AsyncFnOnce, UIntExtensions},
-	macros::macro_each,
-	opt::hint::*,
-	paste::paste
-};
+use xx_core::async_std::io::typed::BufReadTyped;
+use xx_core::async_std::io::*;
+use xx_core::impls::{AsyncFnOnce, UIntExtensions};
+use xx_core::macros::macro_each;
+use xx_core::opt::hint::*;
+use xx_core::paste::paste;
 
 use super::*;
-use crate::{resource::*, FormatError};
+use crate::resource::*;
+use crate::FormatError;
 
 macro_rules! read_num_type_endian {
 	($type:ty, $endian_type:ident) => {

@@ -1,7 +1,8 @@
 #![allow(unreachable_pub)]
 
 use ffmpeg_sys_next::AVInputFormat;
-use xx_core::{impls::UIntExtensions, pointer::*};
+use xx_core::impls::UIntExtensions;
+use xx_core::pointer::*;
 
 use super::*;
 use crate::av::{AVPacket, FormatContext, ProbeResult, TIME_BASE};

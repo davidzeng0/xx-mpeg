@@ -2,8 +2,12 @@ use convert_case::*;
 use pluralizer::*;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
-use syn::{parse::*, punctuated::Punctuated, spanned::Spanned, *};
-use xx_macro_support::{attribute::*, fallible::*};
+use syn::parse::*;
+use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
+use syn::*;
+use xx_macro_support::attribute::*;
+use xx_macro_support::fallible::*;
 
 #[derive(Clone)]
 struct EbmlField {

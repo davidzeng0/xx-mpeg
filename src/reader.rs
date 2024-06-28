@@ -5,7 +5,7 @@ use std::mem::size_of;
 
 use xx_core::async_std::io::typed::BufReadTyped;
 use xx_core::async_std::io::*;
-use xx_core::impls::{AsyncFnOnce, UIntExtensions};
+use xx_core::impls::{AsyncFnOnce, UintExt};
 use xx_core::macros::macro_each;
 use xx_core::opt::hint::*;
 use xx_core::paste::paste;
@@ -187,21 +187,20 @@ impl Reader {
 
 	pub async fn seek(&mut self, seek: SeekFrom) -> Result<()> {
 		#[allow(clippy::unwrap_used)]
-		let ((rel, overflow), abs) = match seek {
-			SeekFrom::Current(pos) => {
-				((pos, false), self.position.checked_add_signed(pos).unwrap())
-			}
+		let (rel, abs) = match seek {
+			SeekFrom::Current(pos) => (Some(pos), self.position.checked_add_signed(pos).unwrap()),
 
-			SeekFrom::Start(pos) => (pos.overflowing_signed_diff(self.position), pos),
+			SeekFrom::Start(pos) => (pos.checked_signed_diff(self.position), pos),
 
 			SeekFrom::End(pos) => {
 				let pos = self.len().await?.checked_add_signed(pos).unwrap();
-				(pos.overflowing_signed_diff(self.position), pos)
+				(pos.checked_signed_diff(self.position), pos)
 			}
 		};
 
-		if !overflow && (self.seekable || rel >= 0) {
-			self.seek_relative(rel).await?;
+		if rel.is_some_and(|rel| rel >= 0 || self.seekable) {
+			#[allow(clippy::unwrap_used)]
+			self.seek_relative(rel.unwrap()).await?;
 		} else {
 			self.position = self.stream.seek(SeekFrom::Start(abs)).await?;
 		};

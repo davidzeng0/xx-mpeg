@@ -53,7 +53,9 @@ impl AacParser {
 		Ok(())
 	}
 
-	pub fn new(parse: CodecParse, params: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
+	pub fn new(
+		parse: CodecParse, params: &mut CodecParams
+	) -> Result<Box<dyn CodecParserImpl + Send + Sync>> {
 		Self::parse_config(params)
 			.map_err(|_| FormatError::InvalidData("Invalid aac config".into()))?;
 

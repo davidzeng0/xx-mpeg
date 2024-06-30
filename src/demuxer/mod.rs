@@ -16,7 +16,7 @@ pub trait DemuxerImpl {
 	async fn read_packet(&mut self, data: &mut FormatData, packet: &mut Packet) -> Result<bool>;
 }
 
-pub type Demuxer = Box<dyn DemuxerImpl>;
+pub type Demuxer = Box<dyn DemuxerImpl + Send + Sync>;
 
 #[asynchronous]
 pub trait DemuxerClassImpl: Send + Sync {

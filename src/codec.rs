@@ -95,7 +95,7 @@ pub trait CodecImpl {
 	fn flush(&mut self) -> Result<()>;
 }
 
-pub struct Codec(Box<dyn CodecImpl>);
+pub struct Codec(Box<dyn CodecImpl + Send + Sync>);
 
 impl Codec {
 	wrapper_functions! {
@@ -159,7 +159,7 @@ pub trait CodecParserImpl {
 	fn parse(&mut self, packet: &mut Packet) -> Result<()>;
 }
 
-pub struct CodecParser(Box<dyn CodecParserImpl>);
+pub struct CodecParser(Box<dyn CodecParserImpl + Send + Sync>);
 
 impl CodecParser {
 	wrapper_functions! {

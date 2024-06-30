@@ -63,6 +63,12 @@ macro_rules! ptr_deref {
 				self.0.as_mut_ptr()
 			}
 		}
+
+		/* Safety: wrapper types are Send */
+		unsafe impl Send for $struct {}
+
+		/* Safety: wrapper types are Sync */
+		unsafe impl Sync for $struct {}
 	};
 }
 

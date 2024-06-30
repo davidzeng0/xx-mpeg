@@ -39,5 +39,5 @@ impl Seek for Stream {
 	}
 }
 
-pub type Stream = Box<dyn StreamImpl>;
-pub type Resource = Box<dyn ResourceImpl>;
+pub type Stream = Box<dyn StreamImpl + Send + Sync>;
+pub type Resource = Box<dyn ResourceImpl + Send + Sync>;

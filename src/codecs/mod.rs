@@ -30,7 +30,7 @@ macro_rules! codec_pair {
 			pub struct [<$name Encoder>];
 
 			impl [<$name Encoder>] {
-				pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecImpl>> {
+				pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecImpl + Send + Sync>> {
 					use crate::av::*;
 
 					let codec_name: Option<&'static str> = $codec_name;
@@ -47,7 +47,7 @@ macro_rules! codec_pair {
 			pub struct [<$name Decoder>];
 
 			impl [<$name Decoder>] {
-				pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecImpl>> {
+				pub fn new(params: &mut CodecParams) -> Result<Box<dyn CodecImpl + Send + Sync>> {
 					use crate::av::*;
 					let codec_name: Option<&'static str> = $codec_name;
 					let codec = codec_name.map(Codecs::find_decoder_by_name).unwrap_or_else(|| Codecs::find_decoder($av_codec));
@@ -71,7 +71,7 @@ macro_rules! parser_pair {
 			pub struct [<$name Parser>];
 
 			impl [<$name Parser>] {
-				pub fn new(parse: CodecParse, params: &mut CodecParams) -> Result<Box<dyn CodecParserImpl>> {
+				pub fn new(parse: CodecParse, params: &mut CodecParams) -> Result<Box<dyn CodecParserImpl + Send + Sync>> {
 					use xx_core::pointer::*;
 					use crate::av::*;
 

@@ -42,13 +42,13 @@ impl DemuxerImpl for AVDemuxer {
 		context.time_base = Rational::inverse(TIME_BASE);
 
 		for index in 0..self.format.nb_streams {
-			let stream_ptr = MutPtr::from(self.format.streams);
+			let stream_ptr = ptr!(self.format.streams);
 
 			#[allow(clippy::multiple_unsafe_ops_per_block)]
 			/* Safety: FFI */
 			unsafe {
-				let stream = MutPtr::from(ptr!(*stream_ptr.add(index as usize))).as_ref();
-				let params = MutPtr::from(stream.codecpar).as_ref();
+				let stream = ptr!(ptr!(*stream_ptr.add(index as usize))).as_ref();
+				let params = ptr!(stream.codecpar).as_ref();
 
 				let mut codec_params = CodecParams::default();
 
@@ -132,12 +132,12 @@ impl DemuxerImpl for AVDemuxer {
 	#[allow(clippy::unwrap_used, clippy::cast_sign_loss)]
 	async fn read_packet(&mut self, context: &mut FormatData, packet: &mut Packet) -> Result<bool> {
 		for index in 0..self.format.nb_streams {
-			let stream_ptr = MutPtr::from(self.format.streams);
+			let stream_ptr = ptr!(self.format.streams);
 
 			#[allow(clippy::multiple_unsafe_ops_per_block)]
 			/* Safety: FFI */
 			unsafe {
-				let stream = MutPtr::from(ptr!(*stream_ptr.add(index as usize)));
+				let stream = ptr!(ptr!(*stream_ptr.add(index as usize)));
 
 				ptr!(stream=>discard) = context.tracks[index as usize].discard.into();
 			}

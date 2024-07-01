@@ -167,7 +167,7 @@ unsafe extern "C" fn log_callback(
 	}
 
 	let mut target = Cursor::new([0u8; 1024]);
-	let context = MutPtr::from(ptr).cast::<()>();
+	let context = ptr!(ptr).cast::<()>();
 
 	/* Safety: all `ptr` store a MutPtr<AVClass> at the beginning for logging */
 	let class = unsafe { get_av_class(context) };

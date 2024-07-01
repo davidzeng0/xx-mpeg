@@ -33,7 +33,7 @@ where
 	F: for<'a> AsyncFnOnce<(&'a mut Reader, &'a mut Errors), Output = O>
 {
 	/* Safety: guaranteed by caller */
-	let adapter: &mut AsyncReader<'_> = unsafe { MutPtr::from(adapter).cast().as_mut() };
+	let adapter: &mut AsyncReader<'_> = unsafe { ptr!(adapter).cast().as_mut() };
 
 	/* Safety: perform async read */
 	let result = catch_unwind_safe(|| unsafe {
@@ -199,8 +199,7 @@ impl<'a> Adapter<'a> {
 		};
 
 		let mut reader = AsyncReader {
-			/* Safety: read on io context */
-			context: unsafe { get_context().await },
+			context: get_context().await,
 			reader: self.reader,
 			error: Errors::None
 		};

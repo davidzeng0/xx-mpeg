@@ -22,7 +22,14 @@ jobs:
           submodules: true
       - name: Setup
         run: |
-          sudo apt install -y valgrind libclang-15-dev pkg-config libopus-dev curl &
+          curl -L --proto '=https' --tlsv1.2 -sSf -O https://sourceware.org/pub/valgrind/valgrind-3.23.0.tar.bz2
+
+          tar -xf valgrind-3.23.0.tar.bz2
+          rm valgrind-3.23.0.tar.bz2
+          cd valgrind-3.23.0
+          ./configure
+          sudo make install -j $(nproc) &
+          sudo apt install -y libc6-dbg libclang-15-dev pkg-config libopus-dev curl &
           curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash &
 
           TARGETARCH=$(uname -p); if [ "$TARGETARCH" = "x86_64" ]; then

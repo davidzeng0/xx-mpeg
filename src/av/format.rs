@@ -13,6 +13,11 @@ pub struct ProbeResult {
 	pub format: NonNull<AVInputFormat>
 }
 
+struct Guard(MutPtr<AVFormatContext>);
+
+ptr_deref!(Guard, AVFormatContext);
+drop!(Guard, avformat_close_input);
+
 pub struct FormatContext(MutPtr<AVFormatContext>, IOContext);
 
 ptr_deref!(FormatContext, AVFormatContext);
@@ -92,6 +97,7 @@ impl FormatContext {
 	pub async fn open(&mut self, reader: &mut Reader) -> Result<()> {
 		let mut ptr = self.as_mut_ptr();
 		let pb = self.1.as_mut_ptr();
+		let guard = Guard(alloc_with(|| ffi!(avformat_alloc_context)).into());
 
 		let read = |_: &mut IOContext| async move {
 			let result = ffi!(
@@ -103,11 +109,13 @@ impl FormatContext {
 			);
 
 			if let Err(err) = result {
-				/* in case of panic in alloc_with */
-				self.0 = MutPtr::null();
-				self.0 = alloc_with(|| ffi!(avformat_alloc_context)).into();
+				self.0 = guard.0;
 
-				/* Safety: set pb */
+				forget(guard);
+
+				/* Safety: valid ptr
+				 * set pb to prevent null pointer use if other functions are called
+				 */
 				#[allow(clippy::multiple_unsafe_ops_per_block)]
 				unsafe {
 					ptr!(self.0=>pb = pb);

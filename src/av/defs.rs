@@ -397,8 +397,8 @@ define_av_alias_casts! {
 define_av_alias_casts! {
 	#[repr(i32)]
 	pub enum Discard = AVDiscard {
-		#[default]
 		None     = AVDiscard::AVDISCARD_NONE as i32,
+		#[default]
 		Default  = AVDiscard::AVDISCARD_DEFAULT as i32,
 		NonRef   = AVDiscard::AVDISCARD_NONREF as i32,
 		Bidir    = AVDiscard::AVDISCARD_BIDIR as i32,
@@ -412,10 +412,10 @@ define_av_alias_casts! {
 	#[repr(u32)]
 	pub enum ChannelOrder = AVChannelOrder {
 		#[default]
-		Unspec = 0,
-		Native = 1,
-		Custom = 2,
-		Ambisonic = 3
+		Unspec    = AVChannelOrder::AV_CHANNEL_ORDER_UNSPEC as u32,
+		Native    = AVChannelOrder::AV_CHANNEL_ORDER_NATIVE as u32,
+		Custom    = AVChannelOrder::AV_CHANNEL_ORDER_CUSTOM as u32,
+		Ambisonic = AVChannelOrder::AV_CHANNEL_ORDER_AMBISONIC as u32
 	}
 }
 

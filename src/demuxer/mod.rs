@@ -5,7 +5,7 @@ pub mod mkv;
 
 use super::*;
 
-#[asynchronous]
+#[asynchronous(impl(mut, box))]
 pub trait DemuxerImpl {
 	async fn open(&mut self, data: &mut FormatData) -> Result<()>;
 
@@ -18,7 +18,7 @@ pub trait DemuxerImpl {
 
 pub type Demuxer = Box<dyn DemuxerImpl + Send + Sync>;
 
-#[asynchronous]
+#[asynchronous(impl(mut, box))]
 pub trait DemuxerClassImpl: Send + Sync {
 	fn name(&self) -> &'static str;
 

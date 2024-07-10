@@ -20,23 +20,9 @@ pub trait StreamImpl: Read + Seek {
 	}
 }
 
-#[asynchronous]
+#[asynchronous(impl(ref, mut, box))]
 pub trait ResourceImpl {
 	async fn create_stream(&self) -> Result<Stream>;
-}
-
-impl Read for Stream {
-	read_wrapper! {
-		inner = as_ref();
-		mut inner = as_mut();
-	}
-}
-
-impl Seek for Stream {
-	seek_wrapper! {
-		inner = as_ref();
-		mut inner = as_mut();
-	}
 }
 
 pub type Stream = Box<dyn StreamImpl + Send + Sync>;

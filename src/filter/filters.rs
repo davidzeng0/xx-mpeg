@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Volume(pub f64);
 
 impl Default for Volume {
@@ -20,7 +20,7 @@ impl Filter for Volume {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct SetRate(pub u32);
 
 impl Filter for SetRate {
@@ -34,7 +34,7 @@ impl Filter for SetRate {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Tempo(pub f64);
 
 impl Default for Tempo {
@@ -54,7 +54,7 @@ impl Filter for Tempo {
 	}
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct FirEqualizer {
 	pub gain_entries: Vec<(f64, f64)>,
 	pub delay: f64,
@@ -93,7 +93,7 @@ impl Filter for FirEqualizer {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Resample(pub u32);
 
 impl Filter for Resample {
@@ -107,7 +107,7 @@ impl Filter for Resample {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Pulsator {
 	pub level_in: f64,
 	pub level_out: f64,
@@ -149,7 +149,7 @@ impl Filter for Pulsator {
 	}
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Echo {
 	pub input_gain: f32,
 	pub output_gain: f32,

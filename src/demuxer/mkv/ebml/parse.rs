@@ -169,7 +169,7 @@ pub async fn default_read_children<R, F>(
 	reader: &mut R, master: &MasterElemHdr, mut handle_child: F
 ) -> Result<()>
 where
-	R: EbmlReader,
+	R: EbmlReader + ?Sized,
 	F: for<'a, 'b> AsyncFnMut<(&'a mut R, &'b ElemHdr), Output = Result<bool>>
 {
 	loop {
@@ -189,7 +189,7 @@ where
 #[asynchronous]
 pub async fn default_skip_element<R>(reader: &mut R, element: &ElemHdr) -> Result<()>
 where
-	R: EbmlReader
+	R: EbmlReader + ?Sized
 {
 	if let Some(remaining) = element.remaining(reader.position()) {
 		reader.skip(remaining).await
@@ -201,7 +201,7 @@ where
 }
 
 #[asynchronous]
-pub trait EbmlReader: Sized + DerefMut<Target = Reader> {
+pub trait EbmlReader: DerefMut<Target = Reader> {
 	async fn read_children<F>(&mut self, master: &MasterElemHdr, handle_child: F) -> Result<()>
 	where
 		F: for<'a, 'b> AsyncFnMut<(&'a mut Self, &'b ElemHdr), Output = Result<bool>>

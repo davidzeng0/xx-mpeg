@@ -2,7 +2,7 @@ use std::io::SeekFrom;
 
 use xx_core::{debug, error};
 use xx_url::http::{get, Body, HttpRequest, StatusCode};
-use xx_url::net::connection::IpStrategy;
+use xx_url::net::conn::IpStrategy;
 
 use super::*;
 

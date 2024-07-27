@@ -1,8 +1,8 @@
-use xx_core::macros::seal_trait;
+use xx_core::macros::sealed_trait;
 
 use super::*;
 
-seal_trait!();
+sealed_trait!();
 
 pub trait FieldMeta: Sized + Sealed {
 	type Element: Element;

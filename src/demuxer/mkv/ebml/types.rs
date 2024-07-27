@@ -1,6 +1,5 @@
-use enumflags2::*;
-use xx_core::macros::macro_each;
-use xx_core::paste::paste;
+use enumflags2::BitFlags;
+use xx_core::macros::{macro_each, paste};
 
 use super::*;
 

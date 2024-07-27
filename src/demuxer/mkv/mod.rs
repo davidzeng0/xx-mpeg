@@ -3,8 +3,8 @@ use std::mem::size_of;
 use std::ops::{Deref, DerefMut};
 
 use num_traits::FromPrimitive;
+use xx_core::coroutines::ops::{AsyncFnMut, AsyncFnMutExt};
 use xx_core::error::*;
-use xx_core::impls::AsyncFnMut;
 use xx_core::{trace, warn};
 
 use super::*;
@@ -12,35 +12,35 @@ use super::*;
 mod ebml;
 mod spec;
 
-use ebml::parse::*;
-use ebml::spec::*;
-use ebml::*;
-use spec::cluster::*;
-use spec::cues::*;
-use spec::seek_head::*;
-use spec::segment_info::*;
-use spec::tracks::{TrackType, Tracks};
-use spec::*;
+use self::ebml::parse::*;
+use self::ebml::spec::*;
+use self::ebml::*;
+use self::spec::cluster::*;
+use self::spec::cues::*;
+use self::spec::seek_head::*;
+use self::spec::segment_info::*;
+use self::spec::tracks::{TrackType, Tracks};
+use self::spec::*;
 
 #[errors]
 enum MatroskaError {
-	#[error("Unsupported EBML version {}", f0)]
+	#[display("Unsupported EBML version {}", f0)]
 	#[kind = ErrorKind::Unimplemented]
 	UnknownEbmlVersion(u64),
 
-	#[error("EBML id length too large ({} bytes)", f0)]
+	#[display("EBML id length too large ({} bytes)", f0)]
 	#[kind = ErrorKind::Unsupported]
 	IdTooLong(u64),
 
-	#[error("EBML size length too large ({} bytes)", f0)]
+	#[display("EBML size length too large ({} bytes)", f0)]
 	#[kind = ErrorKind::Unsupported]
 	SizeTooLong(u64),
 
-	#[error("Unknown doc type {}", f0)]
+	#[display("Unknown doc type {}", f0)]
 	#[kind = ErrorKind::Unimplemented]
 	UnknownDocType(String),
 
-	#[error("Unknown doc type version {}", f0)]
+	#[display("Unknown doc type version {}", f0)]
 	#[kind = ErrorKind::Unimplemented]
 	UnknownDocTypeVersion(u64)
 }
@@ -101,7 +101,7 @@ impl Matroska {
 		(self.level += 1);
 	}
 
-	#[allow(clippy::unwrap_used)]
+	#[allow(clippy::unwrap_used, clippy::missing_panics_doc)]
 	fn stack_pop(&mut self) {
 		self.level = self.level.checked_sub(1).unwrap();
 	}
@@ -348,7 +348,7 @@ impl DerefMut for Matroska {
 impl EbmlReader for Matroska {
 	async fn read_children<F>(&mut self, master: &MasterElemHdr, mut handle_child: F) -> Result<()>
 	where
-		F: for<'a, 'b> AsyncFnMut<(&'a mut Self, &'b ElemHdr), Output = Result<bool>>
+		F: AsyncFnMut(&mut Self, &ElemHdr) -> Result<bool>
 	{
 		#[allow(clippy::arithmetic_side_effects)]
 		(self.level += 1);

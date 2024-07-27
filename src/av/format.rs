@@ -18,14 +18,14 @@ struct Guard(MutPtr<AVFormatContext>);
 ptr_deref!(Guard, AVFormatContext);
 drop!(Guard, avformat_close_input);
 
-pub struct FormatContext(MutPtr<AVFormatContext>, IOContext);
+pub struct FormatContext(MutPtr<AVFormatContext>, IoContext);
 
 ptr_deref!(FormatContext, AVFormatContext);
 drop!(FormatContext, avformat_close_input);
 
 impl FormatContext {
 	pub fn new() -> Self {
-		let context = IOContext::new();
+		let context = IoContext::new();
 
 		let mut this = Self(alloc_with(|| ffi!(avformat_alloc_context)).into(), context);
 
@@ -40,7 +40,12 @@ impl FormatContext {
 	pub async fn probe(reader: &mut Reader) -> Result<Option<ProbeResult>> {
 		const_assert!(DEFAULT_BUFFER_SIZE <= u32::MAX as usize);
 
-		let read = |io: &mut IOContext| async move {
+		let read = |io: &mut IoContext| async move {
+			/// # Safety
+			/// valid cstr pointer
+			///
+			/// # Panics
+			/// if the resulting bytes is not utf8
 			unsafe fn cstr_to_str(cstr: *const c_char) -> String {
 				if cstr.is_null() {
 					return String::new();
@@ -84,7 +89,7 @@ impl FormatContext {
 			Ok(result)
 		};
 
-		let mut context = IOContext::new();
+		let mut context = IoContext::new();
 		let mut adapter = Adapter::new(&mut context, reader);
 
 		match adapter.with(read).await {
@@ -99,7 +104,7 @@ impl FormatContext {
 		let pb = self.1.as_mut_ptr();
 		let guard = Guard(alloc_with(|| ffi!(avformat_alloc_context)).into());
 
-		let read = |_: &mut IOContext| async move {
+		let read = |_: &mut IoContext| async {
 			let result = ffi!(
 				avformat_open_input,
 				&mut ptr,
@@ -137,7 +142,7 @@ impl FormatContext {
 
 	pub async fn read_frame(&mut self, packet: &mut AVPacket, reader: &mut Reader) -> Result<bool> {
 		let ptr = self.as_mut_ptr();
-		let read = |_: &mut IOContext| async move {
+		let read = |_: &mut IoContext| async {
 			ffi!(av_read_frame, ptr, packet.as_mut_ptr())?;
 
 			Ok(())
@@ -168,7 +173,7 @@ impl FormatContext {
 		}
 
 		let ptr = self.as_mut_ptr();
-		let read = |_: &mut IOContext| async move {
+		let read = |_: &mut IoContext| async move {
 			ffi!(
 				avformat_seek_file,
 				ptr,

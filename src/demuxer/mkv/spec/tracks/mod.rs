@@ -5,10 +5,10 @@ pub mod content_encoding;
 pub mod translate;
 pub mod video;
 
-use audio::*;
-use content_encoding::*;
-use translate::*;
-use video::*;
+use self::audio::*;
+use self::content_encoding::*;
+use self::translate::*;
+use self::video::*;
 
 ebml_define! {
 	pub struct Tracks {

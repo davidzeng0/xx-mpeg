@@ -30,6 +30,8 @@ impl ParserContext {
 		MutNonNull::new(ffi!(av_parser_init, codec as i32).into()).map(Self)
 	}
 
+	/// # Panics
+	/// if the packet is too large
 	#[allow(clippy::needless_pass_by_ref_mut, clippy::unwrap_used)]
 	pub fn parse(
 		&mut self, codec: &mut CodecContext, mut packet: &[u8], mut pts: i64, mut dts: i64,

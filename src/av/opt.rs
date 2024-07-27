@@ -4,11 +4,15 @@ use std::mem::size_of_val;
 use super::*;
 
 pub trait OptionSetter: Sized {
+	/// # Safety
+	/// object has a valid ptr
 	unsafe fn set(object: &mut Object<'_>, option: &str, value: Self) -> Result<()> {
 		/* Safety: guaranteed by caller */
 		unsafe { Self::set_c(object, &into_cstr(option), value) }
 	}
 
+	/// # Safety
+	/// object has a valid ptr
 	unsafe fn set_c(object: &mut Object<'_>, option: &CStr, value: Self) -> Result<()>;
 }
 
@@ -238,11 +242,15 @@ impl Object<'_> {
 		Self(ptr.cast(), PhantomData)
 	}
 
+	/// # Safety
+	/// the pointer passed to this `Object` is valid
 	pub unsafe fn set<T: OptionSetter>(&mut self, option: &str, value: T) -> Result<()> {
 		/* Safety: guaranteed by caller */
 		unsafe { T::set(self, option, value) }
 	}
 
+	/// # Safety
+	/// the pointer passed to this `Object` is valid
 	pub unsafe fn set_c<T: OptionSetter>(&mut self, option: &CStr, value: T) -> Result<()> {
 		/* Safety: guaranteed by caller */
 		unsafe { T::set_c(self, option, value) }

@@ -1,14 +1,7 @@
-use convert_case::*;
-use pluralizer::*;
-use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote, quote_spanned};
-use syn::parse::*;
-use syn::punctuated::Punctuated;
-use syn::spanned::Spanned;
-use syn::*;
-use xx_macro_support::attribute::*;
-use xx_macro_support::fallible::*;
+use convert_case::{Case, Casing};
+use pluralizer::pluralize;
 
+use super::*;
 #[derive(Clone)]
 struct EbmlField {
 	field: Field,
@@ -46,11 +39,11 @@ fn parse_field_rest(input: &ParseBuffer<'_>, mut field: Field) -> Result<EbmlFie
 		default = Some(input.parse()?);
 	}
 
-	if remove_attr_path(&mut field.attrs, "flatten").is_some() {
+	if field.attrs.remove_path("flatten").is_some() {
 		flatten = true;
 	}
 
-	if let Some(attr) = remove_attr_name_value(&mut field.attrs, "rename") {
+	if let Some(attr) = field.attrs.remove_name_value("rename") {
 		let Expr::Lit(ExprLit { lit: Lit::Str(str), .. }) = &attr.value else {
 			return Err(Error::new_spanned(attr.value, "Expected a str"));
 		};
@@ -179,6 +172,7 @@ fn partial_ident(name: &Ident) -> Ident {
 	format_ident!("Partial{}", name)
 }
 
+#[allow(clippy::missing_panics_doc)]
 fn partial_path(path: &Path) -> Path {
 	let mut path = path.clone();
 	let last = path.segments.last_mut().unwrap();
@@ -187,6 +181,7 @@ fn partial_path(path: &Path) -> Path {
 	path
 }
 
+#[allow(clippy::missing_panics_doc)]
 fn generate_partial(element: &Element) -> Result<TokenStream> {
 	let mut finalize = Vec::new();
 
@@ -586,12 +581,14 @@ fn transform_enum(mut item: ItemEnum) -> Result<TokenStream> {
 		#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, ::num_derive::FromPrimitive)]
 	});
 
-	let parse = if remove_attr_path(&mut item.attrs, "bitflags").is_some() {
+	let parse = if item.attrs.remove_path("bitflags").is_some() {
 		item.attrs.push(parse_quote! { #[bitflags] });
 
 		None
 	} else {
-		let repr = remove_attr_list(&mut item.attrs, "repr")
+		let repr = item
+			.attrs
+			.remove_list("repr")
 			.ok_or_else(|| Error::new(Span::call_site(), "Expected a repr"))?;
 
 		let MacroDelimiter::Paren(_) = repr.delimiter else {
@@ -628,11 +625,11 @@ fn transform_enum(mut item: ItemEnum) -> Result<TokenStream> {
 	})
 }
 
-pub fn ebml_define(item: TokenStream) -> TokenStream {
-	try_expand(|| {
-		parse2::<Define>(item).and_then(|def| match def {
-			Define::Element(element) => element.expand(),
-			Define::Enum(item) => transform_enum(item)
-		})
-	})
+pub fn ebml_define(item: TokenStream) -> Result<TokenStream> {
+	let def = parse2::<Define>(item)?;
+
+	match def {
+		Define::Element(element) => element.expand(),
+		Define::Enum(item) => transform_enum(item)
+	}
 }

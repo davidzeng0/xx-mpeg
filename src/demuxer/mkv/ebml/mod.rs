@@ -11,8 +11,9 @@ pub mod parse;
 pub mod spec;
 pub mod types;
 
-use parse::*;
 pub use types::*;
+
+use self::parse::*;
 
 pub type EbmlId = u64;
 pub const UNKNOWN_SIZE: u64 = u64::MAX;

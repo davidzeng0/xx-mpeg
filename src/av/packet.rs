@@ -12,8 +12,8 @@ impl AVPacket {
 		ffi!(av_packet_unref, self.as_mut_ptr());
 	}
 
+	#[allow(clippy::missing_panics_doc, clippy::unwrap_used)]
 	pub fn data(&self) -> Ptr<[u8]> {
-		#[allow(clippy::unwrap_used)]
 		Ptr::slice_from_raw_parts(self.data.cast_const().into(), self.size.try_into().unwrap())
 	}
 }

@@ -105,7 +105,7 @@ impl Format {
 		}
 
 		let this = Self {
-			demuxer: AVFormatClass::create(reader, Some(probe.format)).await?,
+			demuxer: AVFormatClass::create(reader, Some(probe.format)),
 			data: FormatData::default()
 		};
 

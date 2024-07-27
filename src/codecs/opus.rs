@@ -9,7 +9,7 @@ pub const SAMPLE_RATE: u32 = 48_000;
 
 #[errors]
 pub enum OpusError {
-	#[error("Invalid opus packet")]
+	#[display("Invalid opus packet")]
 	#[kind = ErrorKind::InvalidData]
 	InvalidPacket
 }

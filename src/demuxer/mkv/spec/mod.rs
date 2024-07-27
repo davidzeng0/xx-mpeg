@@ -1,5 +1,7 @@
 #![allow(clippy::unreadable_literal, unreachable_pub)]
 
+use enumflags2::bitflags;
+
 use super::*;
 use crate::macros::ebml_define;
 
@@ -9,11 +11,11 @@ pub mod seek_head;
 pub mod segment_info;
 pub mod tracks;
 
-use cluster::*;
-use cues::*;
-use seek_head::*;
-use segment_info::*;
-use tracks::*;
+use self::cluster::*;
+use self::cues::*;
+use self::seek_head::*;
+use self::segment_info::*;
+use self::tracks::*;
 
 ebml_define! {
 	#[allow(dead_code)]

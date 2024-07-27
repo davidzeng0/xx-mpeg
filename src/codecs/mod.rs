@@ -4,7 +4,7 @@
 	missing_copy_implementations
 )]
 
-use xx_core::paste::paste;
+use xx_core::macros::paste;
 
 use super::*;
 

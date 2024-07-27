@@ -32,6 +32,8 @@ impl Frame {
 		Self::default()
 	}
 
+	/// # Panics
+	/// if some of the fields in the frame are out of range
 	#[allow(clippy::unwrap_used)]
 	pub(crate) fn copy_fields_to(&self, frame: &mut AVFrame) {
 		frame.time_base = self.time_base.into();
@@ -47,6 +49,8 @@ impl Frame {
 		frame.repeat_pict = self.repeat_picture;
 	}
 
+	/// # Panics
+	/// if some of the fields in the frame are out of range
 	#[allow(clippy::unwrap_used, clippy::cast_sign_loss)]
 	pub(crate) fn get_fields_from_inner(&mut self, codec_type: Option<MediaType>) {
 		self.time_base = self.data.time_base.into();

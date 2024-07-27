@@ -524,6 +524,8 @@ impl ChannelLayout {
 		Self::Unspec(channels)
 	}
 
+	/// # Panics
+	/// if the custom channels count cannot fit into a u16
 	pub fn channel_count(&self) -> u16 {
 		#[allow(clippy::unwrap_used)]
 		match self {

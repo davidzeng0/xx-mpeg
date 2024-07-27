@@ -103,6 +103,8 @@ pub(super) fn result_from_av_maybe_none(err: i32) -> Result<bool> {
 	}
 }
 
+/// # Panics
+/// if the input str is not a valid cstring
 pub(super) fn into_cstr(str: &str) -> CString {
 	#[allow(clippy::expect_used)]
 	CString::new(str).expect("Valid C string")

@@ -110,6 +110,8 @@ pub struct AudioSinkOptions {
 pub struct AudioFilterGraph(FilterGraph, AudioBufferSrc, AudioBufferSink);
 
 impl AudioFilterGraph {
+	/// # Panics
+	/// if the sample rate cannot fit into an i32
 	pub fn new(threads: u16, input: &AudioSrcOptions, output: &AudioSinkOptions) -> Self {
 		let mut graph = FilterGraph::new();
 

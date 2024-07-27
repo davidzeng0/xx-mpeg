@@ -8,7 +8,7 @@ use super::*;
 
 #[errors]
 pub enum HttpError {
-	#[error("HTTP error {}", f0)]
+	#[display("HTTP error {}", f0)]
 	BadStatus(StatusCode)
 }
 

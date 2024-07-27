@@ -5,10 +5,10 @@ use std::mem::size_of;
 
 use xx_core::async_std::io::typed::BufReadTyped;
 use xx_core::async_std::io::*;
-use xx_core::impls::{AsyncFnOnce, UintExt};
-use xx_core::macros::macro_each;
+use xx_core::coroutines::ops::AsyncFnOnce;
+use xx_core::impls::UintExt;
+use xx_core::macros::{macro_each, paste};
 use xx_core::opt::hint::*;
-use xx_core::paste::paste;
 
 use super::*;
 use crate::resource::*;
@@ -48,7 +48,7 @@ macro_rules! read_int {
 #[errors]
 #[allow(clippy::module_name_repetitions)]
 pub enum ReaderError {
-	#[error("Peek buffer exhausted")]
+	#[display("Peek buffer exhausted")]
 	PeekBufferExhausted
 }
 
@@ -97,7 +97,7 @@ impl Reader {
 	#[inline(always)]
 	async fn do_read<T, F>(&mut self, len: usize, read: F) -> Result<T>
 	where
-		F: for<'a> AsyncFnOnce<&'a mut Self, Output = Result<T>>
+		F: AsyncFnOnce(&mut Self) -> Result<T>
 	{
 		if unlikely(self.peeking.is_some() && self.stream.buffer().len() < len) {
 			self.reserve_space(len).await?;
@@ -186,7 +186,7 @@ impl Reader {
 	}
 
 	pub async fn seek(&mut self, seek: SeekFrom) -> Result<()> {
-		#[allow(clippy::unwrap_used)]
+		#[allow(clippy::unwrap_used, unstable_name_collisions)]
 		let (rel, abs) = match seek {
 			SeekFrom::Current(pos) => (Some(pos), self.position.checked_add_signed(pos).unwrap()),
 
@@ -194,6 +194,7 @@ impl Reader {
 
 			SeekFrom::End(pos) => {
 				let pos = self.len().await?.checked_add_signed(pos).unwrap();
+
 				(pos.checked_signed_diff(self.position), pos)
 			}
 		};
@@ -322,7 +323,7 @@ impl Reader {
 	pub async fn read_string(&mut self, size: usize) -> Result<String> {
 		let buf = self.read_bytes(size).await?;
 
-		String::from_utf8(buf).map_err(|_| ErrorKind::invalid_utf8().into())
+		String::from_utf8(buf).map_err(Into::into)
 	}
 
 	pub const fn position(&self) -> u64 {

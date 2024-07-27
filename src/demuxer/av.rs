@@ -175,8 +175,8 @@ pub struct AVFormatClass;
 
 #[asynchronous]
 impl AVFormatClass {
-	pub async fn create(reader: Reader, format: Option<NonNull<AVInputFormat>>) -> Result<Demuxer> {
-		Ok(Box::new(AVDemuxer::new(reader, format)))
+	pub fn create(reader: Reader, format: Option<NonNull<AVInputFormat>>) -> Demuxer {
+		Box::new(AVDemuxer::new(reader, format))
 	}
 
 	pub async fn probe(reader: &mut Reader) -> Result<Option<ProbeResult>> {

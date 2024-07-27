@@ -4,85 +4,85 @@ use super::*;
 
 #[errors]
 pub enum AVError {
-	#[error("Bitstream filter not found")]
+	#[display("Bitstream filter not found")]
 	#[kind = ErrorKind::NotFound]
 	BitstreamFilterNotFound,
 
-	#[error("AV internal bug")]
+	#[display("AV internal bug")]
 	InternalBug,
 
-	#[error("Buffer too small")]
+	#[display("Buffer too small")]
 	#[kind = ErrorKind::InvalidInput]
 	BufferTooSmall,
 
-	#[error("Demuxer not found")]
+	#[display("Demuxer not found")]
 	#[kind = ErrorKind::InvalidData]
 	DemuxerNotFound,
 
-	#[error("End of file")]
+	#[display("End of file")]
 	EndOfFile,
 
-	#[error("Exit requested")]
+	#[display("Exit requested")]
 	ExitRequested,
 
-	#[error("Error in external library")]
+	#[display("Error in external library")]
 	ExternalError,
 
-	#[error("Filter not found")]
+	#[display("Filter not found")]
 	#[kind = ErrorKind::NotFound]
 	FilterNotFound,
 
-	#[error("Invalid data found while processing input")]
+	#[display("Invalid data found while processing input")]
 	#[kind = ErrorKind::InvalidData]
 	InvalidData,
 
-	#[error("Muxer not found")]
+	#[display("Muxer not found")]
 	#[kind = ErrorKind::NotFound]
 	MuxerNotFound,
 
-	#[error("Option not found")]
+	#[display("Option not found")]
 	#[kind = ErrorKind::NotFound]
 	OptionNotFound,
 
-	#[error("Not implemented")]
+	#[display("Not implemented")]
 	#[kind = ErrorKind::Unimplemented]
 	NotImplemented,
 
-	#[error("Protocol not found")]
+	#[display("Protocol not found")]
 	#[kind = ErrorKind::NotFound]
 	ProtocolNotFound,
 
-	#[error("Stream not found")]
+	#[display("Stream not found")]
 	#[kind = ErrorKind::NotFound]
 	StreamNotFound,
 
-	#[error("Unknown error or error in external library")]
+	#[display("Unknown error or error in external library")]
 	Unknown,
 
-	#[error("Feature is experimental")]
+	#[display("Feature is experimental")]
 	Experimental,
 
-	#[error("Input changed")]
+	#[display("Input changed")]
 	InputChanged,
 
-	#[error("Output changed")]
+	#[display("Output changed")]
 	OutputChanged,
 
-	#[error("HTTP bad request")]
+	#[display("HTTP bad request")]
 	HttpBadRequest,
 
-	#[error("HTTP unauthorized")]
+	#[display("HTTP unauthorized")]
 	HttpUnauthorized,
 
-	#[error("HTTP forbidden")]
+	#[display("HTTP forbidden")]
 	HttpForbidden,
 
-	#[error("HTTP not found")]
+	#[display("HTTP not found")]
 	HttpNotFound,
 
-	#[error("HTTP 4xx")]
+	#[display("HTTP 4xx")]
 	HttpOther4xx,
 
-	#[error("HTTP server error")]
+	#[display("HTTP server error")]
 	HttpServerError
 }

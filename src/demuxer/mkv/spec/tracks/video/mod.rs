@@ -3,8 +3,8 @@ use super::*;
 pub mod color;
 pub mod projection;
 
-use color::*;
-use projection::*;
+use self::color::*;
+use self::projection::*;
 
 ebml_define! {
 	#[repr(Unsigned)]

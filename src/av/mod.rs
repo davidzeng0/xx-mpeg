@@ -2,27 +2,29 @@
 
 use std::any::Any;
 use std::ffi::{c_char, c_void, CStr, CString};
-use std::io::{Cursor, SeekFrom, Write};
+use std::io::{SeekFrom, Write};
 use std::mem::{forget, transmute, zeroed};
 use std::ops::{Deref, DerefMut};
-use std::panic::*;
+use std::panic::resume_unwind;
 use std::str::from_utf8;
 
-use enumflags2::*;
+use enumflags2::{bitflags, BitFlags};
 pub use ffmpeg_sys_next::AVCodecID;
+#[allow(clippy::wildcard_imports)]
 use ffmpeg_sys_next::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 use xx_core::async_std::io::*;
+use xx_core::coroutines::ops::AsyncFnOnce;
 use xx_core::coroutines::Context;
 use xx_core::ctor::ctor;
 use xx_core::error::*;
-use xx_core::impls::AsyncFnOnce;
+use xx_core::io::UninitBuf;
 use xx_core::log::internal::*;
 use xx_core::log::Level;
+use xx_core::macros::paste;
 use xx_core::opt::hint::*;
 use xx_core::os::error::OsError;
-use xx_core::paste::paste;
 use xx_core::pointer::*;
 use xx_pulse::*;
 
@@ -49,18 +51,19 @@ mod packet;
 mod parser;
 
 pub use codec::*;
-use conv::*;
 pub use defs::*;
 pub use error::*;
 pub use filter::*;
 pub use filters::*;
 pub use format::*;
 pub use frame::AVFrame;
-use io::*;
-use macros::*;
 pub use opt::*;
 pub use packet::AVPacket;
 pub use parser::*;
+
+use self::conv::*;
+use self::io::*;
+use self::macros::*;
 
 trait IntoResult {
 	type Type;
@@ -116,6 +119,8 @@ macro_rules! ffi_optional {
 
 use ffi_optional;
 
+/// # Panics
+/// when out of memory
 fn alloc_with<T, F>(alloc: F) -> MutNonNull<T>
 where
 	F: FnOnce() -> *mut T
@@ -124,6 +129,8 @@ where
 	MutNonNull::new(alloc().into()).expect("Memory allocation failed")
 }
 
+/// # Safety
+/// valid pointer
 unsafe fn get_av_class(context: MutPtr<()>) -> MutPtr<AVClass> {
 	if !context.is_null() {
 		/* Safety: guaranteed by caller */
@@ -133,6 +140,8 @@ unsafe fn get_av_class(context: MutPtr<()>) -> MutPtr<AVClass> {
 	}
 }
 
+/// # Safety
+/// valid ptrs
 #[allow(clippy::multiple_unsafe_ops_per_block)]
 unsafe fn item_name<'a>(obj: MutPtr<()>, class: MutPtr<AVClass>) -> &'a str {
 	let item_name = if !class.is_null() {
@@ -148,6 +157,8 @@ unsafe fn item_name<'a>(obj: MutPtr<()>, class: MutPtr<AVClass>) -> &'a str {
 	str.to_str().unwrap_or("<error>")
 }
 
+/// # Safety
+/// valid ptrs
 #[allow(clippy::multiple_unsafe_ops_per_block)]
 unsafe extern "C" fn log_callback(
 	ptr: *mut c_void, level: i32, fmt: *const c_char, args: *mut __va_list_tag
@@ -166,7 +177,7 @@ unsafe extern "C" fn log_callback(
 		return;
 	}
 
-	let mut target = Cursor::new([0u8; 1024]);
+	let mut target = UninitBuf::<1024>::new();
 	let context = ptr!(ptr).cast::<()>();
 
 	/* Safety: all `ptr` store a MutPtr<AVClass> at the beginning for logging */
@@ -202,9 +213,7 @@ unsafe extern "C" fn log_callback(
 		let _ = format_struct(&mut target, context, unsafe { item_name(context, class) });
 	}
 
-	#[allow(clippy::cast_possible_truncation)]
-	let pos = target.position() as usize;
-	let target = from_utf8(&target.get_ref()[0..pos]).unwrap_or("<error>");
+	let target = from_utf8(&target).unwrap_or("<error>");
 
 	/* Safety: repr C */
 	let mut content = unsafe { zeroed() };
@@ -215,7 +224,7 @@ unsafe extern "C" fn log_callback(
 	/* Safety: is always null terminated */
 	let str = unsafe { CStr::from_ptr(content.str_).to_string_lossy() };
 
-	log!(target: target, level, "{}", str);
+	log!(target: target, level, "== {}", str);
 
 	let _ = ffi!(
 		av_bprint_finalize,

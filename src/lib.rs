@@ -1,4 +1,4 @@
-use enumflags2::*;
+use enumflags2::{bitflags, BitFlag, BitFlags};
 use xx_core::error::*;
 use xx_pulse::*;
 
@@ -15,8 +15,8 @@ pub mod packet;
 pub mod rational;
 mod reader;
 
-use demuxer::*;
-use reader::*;
+use self::demuxer::*;
+use self::reader::*;
 pub mod resource;
 pub use av::UNKNOWN_TIMESTAMP;
 pub use codec::*;

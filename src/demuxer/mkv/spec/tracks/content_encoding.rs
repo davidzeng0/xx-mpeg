@@ -1,5 +1,3 @@
-use enumflags2::*;
-
 use super::*;
 
 ebml_define! {

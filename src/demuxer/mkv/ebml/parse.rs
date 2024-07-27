@@ -4,27 +4,27 @@ use super::*;
 
 #[errors]
 pub enum EbmlError {
-	#[error("EBML vint first byte cannot be zero")]
+	#[display("EBML vint first byte cannot be zero")]
 	#[kind = ErrorKind::InvalidData]
 	InvalidVint,
 
-	#[error("EBML id was zero or the maximum value")]
+	#[display("EBML id was zero or the maximum value")]
 	#[kind = ErrorKind::InvalidData]
 	InvalidId,
 
-	#[error("Found a duplicate element")]
+	#[display("Found a duplicate element")]
 	#[kind = ErrorKind::InvalidData]
 	DuplicateElement,
 
-	#[error("Required element is missing")]
+	#[display("Required element is missing")]
 	#[kind = ErrorKind::InvalidData]
 	MissingElement,
 
-	#[error("Expected non zero data")]
+	#[display("Expected non zero data")]
 	#[kind = ErrorKind::InvalidData]
 	ExpectedNonZero,
 
-	#[error("Invalid enum variant")]
+	#[display("Invalid enum variant")]
 	#[kind = ErrorKind::InvalidData]
 	InvalidVariant
 }
@@ -170,7 +170,7 @@ pub async fn default_read_children<R, F>(
 ) -> Result<()>
 where
 	R: EbmlReader + ?Sized,
-	F: for<'a, 'b> AsyncFnMut<(&'a mut R, &'b ElemHdr), Output = Result<bool>>
+	F: AsyncFnMut(&mut R, &ElemHdr) -> Result<bool>
 {
 	loop {
 		let element = match master.next_element(&mut *reader).await? {
@@ -204,7 +204,7 @@ where
 pub trait EbmlReader: DerefMut<Target = Reader> {
 	async fn read_children<F>(&mut self, master: &MasterElemHdr, handle_child: F) -> Result<()>
 	where
-		F: for<'a, 'b> AsyncFnMut<(&'a mut Self, &'b ElemHdr), Output = Result<bool>>
+		F: AsyncFnMut(&mut Self, &ElemHdr) -> Result<bool>
 	{
 		default_read_children(self, master, handle_child).await
 	}

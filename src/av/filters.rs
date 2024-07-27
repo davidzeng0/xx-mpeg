@@ -1,5 +1,7 @@
 use std::fmt::{Arguments, Display};
-use std::io::{Cursor, Write};
+use std::io::Write;
+
+use xx_core::io::UninitBuf;
 
 use super::*;
 
@@ -55,22 +57,21 @@ impl Format for ChannelLayout {
 	}
 }
 
+/// # Panics
+/// if writing the string fails
 fn format_cstr<const N: usize, W, F>(write: W, func: F)
 where
-	W: FnOnce(&mut Cursor<[u8; N]>),
+	W: FnOnce(&mut UninitBuf<N>),
 	F: FnOnce(&CStr)
 {
-	let mut buf = Cursor::new([0u8; N]);
+	let mut buf = UninitBuf::new();
 
 	write(&mut buf);
 
-	#[allow(clippy::panic)]
-	let Ok(1) = buf.write(&[0]) else {
-		panic!("Failed to write string")
-	};
+	assert_eq!(buf.extend_from_slice(&[0]), 1, "Failed to write string");
 
 	#[allow(clippy::cast_possible_truncation, clippy::unwrap_used)]
-	let str = CStr::from_bytes_until_nul(&buf.get_ref()[0..buf.position() as usize]).unwrap();
+	let str = CStr::from_bytes_until_nul(&buf).unwrap();
 
 	func(str);
 }
@@ -112,6 +113,8 @@ where
 pub struct BufferSrc(FilterContext);
 
 impl BufferSrc {
+	/// # Safety
+	/// frame contains raw pointers and must be valid
 	pub unsafe fn send_frame(&mut self, frame: AVFrame) -> Result<()> {
 		ffi!(
 			av_buffersrc_add_frame,
@@ -140,6 +143,8 @@ deref_inner!(BufferSrc, FilterContext);
 pub struct BufferSink(FilterContext);
 
 impl BufferSink {
+	/// # Safety
+	/// frame contains raw pointers and must be valid
 	pub unsafe fn receive_frame(&mut self, frame: &mut AVFrame) -> Result<bool> {
 		ffi_optional!(
 			av_buffersink_get_frame,
@@ -166,6 +171,8 @@ impl AudioBufferSrc {
 		channels: i32 = c"channels"
 	}
 
+	/// # Panics
+	/// if the filter is not found
 	pub fn new(graph: &mut FilterGraph) -> Self {
 		#[allow(clippy::expect_used)]
 		let filter = Filters::find_by_name_c(c"abuffer").expect("Filter not found");
@@ -194,6 +201,8 @@ impl AudioBufferSink {
 		all_channel_counts: bool = c"all_channel_counts"
 	}
 
+	/// # Panics
+	/// if the filter is not found
 	pub fn new(graph: &mut FilterGraph) -> Self {
 		#[allow(clippy::expect_used)]
 		let filter = Filters::find_by_name_c(c"abuffersink").expect("Filter not found");
@@ -236,6 +245,8 @@ impl SetRate {
 		sample_rate_signed: i32 = c"sample_rate"
 	}
 
+	/// # Panics
+	/// if the sample rate cannot fit into an i32
 	pub fn set_sample_rate(&mut self, rate: u32) {
 		#[allow(clippy::unwrap_used)]
 		self.set_sample_rate_signed(rate.try_into().unwrap());
@@ -297,6 +308,8 @@ impl Resample {
 		sample_rate_signed: i32 = c"sample_rate"
 	}
 
+	/// # Panics
+	/// if the sample rate cannot fit into an i32
 	pub fn set_sample_rate(&mut self, rate: u32) {
 		#[allow(clippy::unwrap_used)]
 		self.set_sample_rate_signed(rate.try_into().unwrap());

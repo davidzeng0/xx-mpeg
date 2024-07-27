@@ -14,7 +14,7 @@ pub struct AVCodec {
 	frame: AVFrame
 }
 
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::missing_panics_doc)]
 fn open_codec(
 	codec: NonNull<ffmpeg_sys_next::AVCodec>, params: &mut CodecParams, mode: Mode
 ) -> Result<CodecContext> {

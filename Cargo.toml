@@ -16,6 +16,9 @@ xx-pulse = { git = "https://github.com/davidzeng0/xx-pulse" }
 xx-url = { git = "https://github.com/davidzeng0/xx-url" }
 xx-mpeg-macros = { path = "macros" }
 
+[features]
+xx-doc = ["xx-core/xx-doc", "xx-pulse/xx-doc", "xx-url/xx-doc"]
+
 [lints.rust]
 elided_lifetimes_in_paths = "warn"
 absolute_paths_not_starting_with_crate = "warn"
@@ -119,3 +122,5 @@ flat_map_option = "warn"
 option_as_ref_cloned = "warn"
 option_option = "warn"
 todo = "warn"
+unused_async = "warn"
+wildcard_imports = "warn"

@@ -4,32 +4,32 @@ use super::*;
 
 #[errors]
 pub enum FormatError {
-	#[error("Unknown format")]
+	#[display("Unknown format")]
 	UnknownFormat,
 
-	#[error("Track not found")]
+	#[display("Track not found")]
 	#[kind = ErrorKind::InvalidData]
 	TrackNotFound,
 
-	#[error(transparent)]
+	#[display(transparent)]
 	#[kind = ErrorKind::InvalidData]
 	InvalidData(Cow<'static, str>),
 
-	#[error("Codec not found")]
+	#[display("Codec not found")]
 	#[kind = ErrorKind::NotFound]
 	CodecNotFound,
 
-	#[error("Read overflowed")]
+	#[display("Read overflowed")]
 	#[kind = ErrorKind::InvalidData]
 	ReadOverflow,
 
-	#[error("Invalid seek: requested position {}, got {}", f0, f1)]
+	#[display("Invalid seek: requested position {}, got {}", f0, f1)]
 	InvalidSeek(u64, u64),
 
-	#[error("No tracks")]
+	#[display("No tracks")]
 	NoTracks,
 
-	#[error("Cannot seek this stream")]
+	#[display("Cannot seek this stream")]
 	#[kind = ErrorKind::NotSeekable]
 	CannotSeek
 }

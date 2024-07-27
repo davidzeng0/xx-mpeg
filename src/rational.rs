@@ -14,7 +14,7 @@ mod private {
 	pub trait Scalar: Num + NumCast {}
 }
 
-use private::*;
+use self::private::*;
 
 impl<T: Num + NumCast> Scalar for T {}
 
@@ -130,6 +130,8 @@ impl<T: Scalar> Mul<T> for Rational {
 	}
 }
 
+/// # Panics
+/// if the ratio cannot be reduced into u32 pairs
 fn maybe_reduce(mut num: u64, mut den: u64) -> (u32, u32) {
 	if let (Ok(num), Ok(den)) = (num.try_into(), den.try_into()) {
 		return (num, den);

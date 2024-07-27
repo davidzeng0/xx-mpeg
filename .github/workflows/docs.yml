@@ -48,7 +48,11 @@ jobs:
           ffmpeg -version
       - name: Build docs
         run: |
-          cargo doc -F xx-doc
+          cargo doc --no-deps --features xx-doc \
+            --package log --package enumflags2 --package num-traits \
+            --package xx-macro-support --package xx-macros --package xx-core \
+            --package xx-pulse --package simple-dns --package rustls --package http \
+            --package xx-url --package ffmpeg-sys-next --package xx-mpeg
           echo '<meta http-equiv="refresh" content="0; url=xx_mpeg">' > target/doc/index.html
           rm target/doc/.lock
       - name: Upload pages

@@ -15,9 +15,36 @@ jobs:
           submodules: true
       - name: Configure pages
         uses: actions/configure-pages@v4
+      - name: Setup
+        run: |
+          TARGETARCH=$(uname -p); if [ "$TARGETARCH" = "x86_64" ]; then
+            export FFMPEG_ARCH="64";
+          elif [ "$TARGETARCH" = "aarch64" ]; then
+            export FFMPEG_ARCH="arm64";
+          else
+            echo "Unsupported architecture: $TARGETARCH";
+            exit 1;
+          fi
+
+          export FFMPEG_BUILD=$(echo "$FFMPEG_VERSION" | sed "s/%ARCH%/$FFMPEG_ARCH/g")
+
+          curl -L -O "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$FFMPEG_BUILD.tar.xz" &
+          rustup update &
+
+          wait
+
+          tar -xf $FFMPEG_BUILD.tar.xz
+
+          mv $FFMPEG_BUILD ffmpeg
+
+          sudo cp -r ffmpeg/bin/* /usr/local/bin
+          sudo cp -r ffmpeg/include/* /usr/local/include
+          sudo cp -r ffmpeg/lib/* /usr/local/lib
+          sudo ldconfig
+
+          ffmpeg -version
       - name: Build docs
         run: |
-          rustup update
           cargo doc -F xx-doc
           echo '<meta http-equiv="refresh" content="0; url=xx_mpeg">' > target/doc/index.html
           rm target/doc/.lock

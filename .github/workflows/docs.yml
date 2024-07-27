@@ -4,6 +4,9 @@ on:
   push:
     branches: [ "main" ]
 
+env:
+  FFMPEG_VERSION: ffmpeg-n7.0-latest-linux%ARCH%-lgpl-shared-7.0
+
 jobs:
   build:
     runs-on: ubuntu-latest

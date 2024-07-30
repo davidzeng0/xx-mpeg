@@ -34,6 +34,7 @@ pub const fn make_id(id: u64) -> u64 {
 }
 
 #[asynchronous]
+#[inline(always)]
 #[allow(clippy::arithmetic_side_effects)]
 pub async fn read_vint(reader: &mut Reader, kind: VIntKind) -> Result<u64> {
 	let first = reader.read_u8().await?;

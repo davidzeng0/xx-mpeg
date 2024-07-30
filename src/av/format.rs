@@ -1,6 +1,4 @@
-#![allow(clippy::module_name_repetitions)]
-
-use xx_core::static_assertions::const_assert;
+use xx_core::macros::const_assert;
 
 use super::*;
 

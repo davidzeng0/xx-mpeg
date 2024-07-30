@@ -1,4 +1,4 @@
-#![allow(unreachable_pub, clippy::module_name_repetitions)]
+#![allow(unreachable_pub)]
 
 use xx_core::opt::hint::*;
 

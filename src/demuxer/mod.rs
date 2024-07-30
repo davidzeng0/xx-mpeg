@@ -1,5 +1,3 @@
-#![allow(clippy::module_name_repetitions)]
-
 pub(crate) mod av;
 pub mod mkv;
 

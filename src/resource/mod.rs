@@ -1,5 +1,3 @@
-#![allow(clippy::module_name_repetitions)]
-
 use xx_core::async_std::io::*;
 
 use super::*;

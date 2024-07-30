@@ -1,5 +1,3 @@
-#![allow(clippy::module_name_repetitions)]
-
 #[allow(unused_imports)]
 pub use ffmpeg_sys_next::{
 	PARSER_FLAG_COMPLETE_FRAMES, PARSER_FLAG_FETCHED_OFFSET, PARSER_FLAG_ONCE,

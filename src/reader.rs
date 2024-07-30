@@ -18,10 +18,13 @@ macro_rules! read_num_type_endian {
 	($type:ty, $endian_type:ident) => {
 		paste! {
 			#[asynchronous]
+			#[inline]
 			pub async fn [<read_ $endian_type>](&mut self) -> Result<$type> {
-				self.do_read(size_of::<$type>(), |this: &mut Self| async move {
-					this.stream.[<read_ $endian_type>]().await
-				}).await
+				self.do_read(
+					size_of::<$type>(),
+					#[inline]
+					|this: &mut Self| async move { this.stream.[<read_ $endian_type>]().await }
+				).await
 			}
 		}
 	};
@@ -46,7 +49,6 @@ macro_rules! read_int {
 }
 
 #[errors]
-#[allow(clippy::module_name_repetitions)]
 pub enum ReaderError {
 	#[display("Peek buffer exhausted")]
 	PeekBufferExhausted
@@ -259,31 +261,43 @@ impl Reader {
 		Ok(read)
 	}
 
+	#[inline]
 	pub async fn read_vint_le(&mut self, size: usize) -> Result<u64> {
-		self.do_read(size, |this: &mut Self| async move {
-			this.stream.read_vint_u64_le(size).await
-		})
+		self.do_read(
+			size,
+			#[inline]
+			|this: &mut Self| async move { this.stream.read_vint_u64_le(size).await }
+		)
 		.await
 	}
 
+	#[inline]
 	pub async fn read_vint_be(&mut self, size: usize) -> Result<u64> {
-		self.do_read(size, |this: &mut Self| async move {
-			this.stream.read_vint_u64_be(size).await
-		})
+		self.do_read(
+			size,
+			#[inline]
+			|this: &mut Self| async move { this.stream.read_vint_u64_be(size).await }
+		)
 		.await
 	}
 
+	#[inline]
 	pub async fn read_vfloat_le(&mut self, size: usize) -> Result<f64> {
-		self.do_read(size, |this: &mut Self| async move {
-			this.stream.read_vfloat_le(size).await
-		})
+		self.do_read(
+			size,
+			#[inline]
+			|this: &mut Self| async move { this.stream.read_vfloat_le(size).await }
+		)
 		.await
 	}
 
+	#[inline]
 	pub async fn read_vfloat_be(&mut self, size: usize) -> Result<f64> {
-		self.do_read(size, |this: &mut Self| async move {
-			this.stream.read_vfloat_be(size).await
-		})
+		self.do_read(
+			size,
+			#[inline]
+			|this: &mut Self| async move { this.stream.read_vfloat_be(size).await }
+		)
 		.await
 	}
 

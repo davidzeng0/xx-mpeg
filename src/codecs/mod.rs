@@ -1,8 +1,4 @@
-#![allow(
-	clippy::module_name_repetitions,
-	clippy::new_ret_no_self,
-	missing_copy_implementations
-)]
+#![allow(clippy::new_ret_no_self, missing_copy_implementations)]
 
 use xx_core::macros::paste;
 

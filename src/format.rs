@@ -1,5 +1,3 @@
-#![allow(clippy::module_name_repetitions)]
-
 use std::ops::{Deref, DerefMut};
 
 use demuxer::av::AVFormatClass;

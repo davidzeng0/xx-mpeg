@@ -8,8 +8,8 @@ on:
 
 env:
   VALGRINDFLAGS: --show-reachable=no --show-possibly-lost=no --fair-sched=yes
+  RUSTFLAGS: -D warnings
   RUST_BACKTRACE: 1
-  FFMPEG_VERSION: ffmpeg-n7.0-latest-linux%ARCH%-lgpl-shared-7.0
 
 jobs:
   rust:
@@ -22,50 +22,23 @@ jobs:
           submodules: true
       - name: Setup
         run: |
-          curl -L --proto '=https' --tlsv1.2 -sSf -O https://sourceware.org/pub/valgrind/valgrind-3.23.0.tar.bz2
-
-          tar -xf valgrind-3.23.0.tar.bz2
-          rm valgrind-3.23.0.tar.bz2
-          cd valgrind-3.23.0
-          ./configure
-          sudo make install -j $(nproc) &
-          sudo apt install -y libc6-dbg libclang-15-dev pkg-config libopus-dev curl &
-          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash &
-
-          TARGETARCH=$(uname -p); if [ "$TARGETARCH" = "x86_64" ]; then
-            export FFMPEG_ARCH="64";
-          elif [ "$TARGETARCH" = "aarch64" ]; then
-            export FFMPEG_ARCH="arm64";
-          else
-            echo "Unsupported architecture: $TARGETARCH";
-            exit 1;
-          fi
-
-          export FFMPEG_BUILD=$(echo "$FFMPEG_VERSION" | sed "s/%ARCH%/$FFMPEG_ARCH/g")
-          curl -L -O "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$FFMPEG_BUILD.tar.xz" &
+          sudo apt install -y libc6-dbg libclang-15-dev pkg-config libopus-dev &
           rustup update &
+          .github/workflows/install_valgrind &
+          .github/workflows/install_test_deps &
+          .github/workflows/install_ffmpeg &
 
           wait
-
-          cargo binstall -y cargo-valgrind cargo-llvm-cov &
-          tar -xf $FFMPEG_BUILD.tar.xz &
-
-          wait
-
-          mv $FFMPEG_BUILD ffmpeg
-
-          sudo cp -r ffmpeg/bin/* /usr/local/bin
-          sudo cp -r ffmpeg/include/* /usr/local/include
-          sudo cp -r ffmpeg/lib/* /usr/local/lib
-          sudo ldconfig
-
-          ffmpeg -version
-      - name: Check & Lint
-        run: RUSTFLAGS="-D warnings" cargo clippy --all-targets
-      - name: Test debug build
-        run: cargo test --tests && cargo valgrind test --tests
-      - name: Test release build
-        run: cargo test -r --tests && cargo valgrind test -r --tests
+      - name: Lint & Test debug build
+        run: |
+          cargo clippy --all-targets
+          cargo test --tests --all-targets
+          cargo valgrind test --tests --all-targets
+      - name: Lint & Test release build
+        run: |
+          cargo clippy -r --all-targets
+          cargo test -r --tests --all-targets
+          cargo valgrind test -r --tests --all-targets
       - name: Generate test coverage
         run: cargo llvm-cov --codecov --output-path codecov.json
       - name: Upload coverage reports to Codecov

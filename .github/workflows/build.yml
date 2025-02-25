@@ -47,4 +47,4 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: codecov.json
-          slug: davidyz0/xx-mpeg
+          slug: davidzeng0/xx-mpeg
